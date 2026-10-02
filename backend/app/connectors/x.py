@@ -14,9 +14,10 @@ import re
 import shutil
 import time
 import uuid
+from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable
+from typing import Any, Awaitable, Callable
 
 try:
     from twikit import Client
@@ -30,6 +31,28 @@ class MissingCredentials(RuntimeError):
 
 class XConnectorError(RuntimeError):
     """Safe provider error; deliberately excludes upstream request/response text."""
+
+
+class XAuthenticationError(XConnectorError):
+    """Authentication failures cannot be downgraded to partial author results."""
+
+
+class XCancelledError(XConnectorError):
+    """A disconnect invalidated an in-flight operation."""
+
+
+class XRateLimitError(XConnectorError):
+    """An endpoint is cooling down; no automatic sleep or retry is performed."""
+
+
+def _status_code(exc: Exception) -> Any:
+    return getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+
+
+def _is_authentication_error(exc: Exception) -> bool:
+    return isinstance(exc, XAuthenticationError) or type(exc).__name__ in {
+        "Unauthorized", "Forbidden", "AccountLocked", "AccountSuspended"
+    } or _status_code(exc) in {401, 403}
 
 
 def parse_cookies(value: str | dict | list) -> dict[str, str]:
@@ -198,10 +221,18 @@ class XConnector:
     MAX_PAGES = 20
     MAX_POSTS = 400
     STATUS_RETRY_INTERVAL = 60.0
+    SESSION_VERIFY_INTERVAL = 900.0
+    USER_ID_CACHE_TTL = 86400.0
+    DEFAULT_COOLDOWN = 60.0
+    MAX_COOLDOWN = 86400.0
+    MAX_AUTHORS = 50
+    MAX_AUTHOR_PAGES = 3
+    CHECKPOINT_KEY = "x.capture"
 
-    def __init__(self, secrets: Any, data_dir: Path):
+    def __init__(self, secrets: Any, data_dir: Path, store: Any = None):
         self.secrets = secrets
         self.data_dir = Path(data_dir)
+        self.store = store
         self._client: Any = None
         self._user: Any = None
         self._login_task: asyncio.Task | None = None
@@ -209,6 +240,21 @@ class XConnector:
         self._request_lock = asyncio.Lock()
         self._generation = 0
         self._last_validation_attempt = 0.0
+        self._verified_monotonic = 0.0
+        self._last_verified_at: str | None = None
+        self._last_success: str | None = None
+        self._last_error: str | None = None
+        self._truncated = False
+        self._warnings: list[dict[str, str]] = []
+        saved = self.store.get_checkpoint(self.CHECKPOINT_KEY) if self.store is not None else None
+        saved = saved if isinstance(saved, dict) else {}
+        self._author_offset = _count(saved.get("author_offset"))
+        self._user_ids = saved.get("user_ids", {}) if isinstance(saved.get("user_ids"), dict) else {}
+        self._cooldowns: dict[str, float] = {}
+        cooldowns = saved.get("cooldowns", {})
+        for endpoint, until in (cooldowns if isinstance(cooldowns, dict) else {}).items():
+            if isinstance(endpoint, str) and isinstance(until, (int, float)) and time.time() < until <= time.time() + self.MAX_COOLDOWN:
+                self._cooldowns[endpoint] = float(until)
         self._state = "disconnected"
         self._message = "尚未连接 X 账号。"
         self._username: str | None = None
@@ -219,11 +265,47 @@ class XConnector:
             "username": self._username,
             "message": self._message,
             "configured": bool(self.secrets.get("x.cookies")),
+            "last_verified_at": self._last_verified_at,
+            "last_success": self._last_success,
+            "last_error": self._last_error,
+            "truncated": self._truncated,
+            "warnings": list(self._warnings),
+            "cooldowns": dict(self._cooldowns),
         }
 
     def _assert_generation(self, generation: int) -> None:
         if self._generation != generation:
-            raise XConnectorError("X 连接操作已取消，请重新发起。")
+            raise XCancelledError("X 连接操作已取消，请重新发起。")
+
+    def _persist_capture_state(self) -> None:
+        if self.store is not None:
+            self.store.save_checkpoint(self.CHECKPOINT_KEY, {
+                "author_offset": self._author_offset,
+                "user_ids": dict(self._user_ids),
+                "cooldowns": dict(self._cooldowns),
+            })
+
+    def _verified(self) -> None:
+        self._verified_monotonic = time.monotonic()
+        self._last_verified_at = datetime.now(timezone.utc).isoformat()
+
+    def _cooldown_until(self, exc: Exception) -> float:
+        now = time.time()
+        headers = getattr(getattr(exc, "response", None), "headers", {}) or {}
+        reset = getattr(exc, "rate_limit_reset", None) or headers.get("x-rate-limit-reset")
+        retry = getattr(exc, "retry_after", None) or headers.get("retry-after") or headers.get("Retry-After")
+        until = now + self.DEFAULT_COOLDOWN
+        try:
+            if reset is not None and float(reset) > now:
+                until = float(reset)
+            elif retry is not None:
+                try:
+                    until = now + max(1.0, float(retry))
+                except (TypeError, ValueError):
+                    until = parsedate_to_datetime(str(retry)).timestamp()
+        except (TypeError, ValueError, OverflowError):
+            pass
+        return max(now + 1, min(until, now + self.MAX_COOLDOWN))
 
     async def _close_client(self, client: Any) -> None:
         if client is not None:
@@ -248,7 +330,7 @@ class XConnector:
         self._last_validation_attempt = time.monotonic()
         client = self._make_client(cookies)
         try:
-            user = await asyncio.wait_for(client.user(), timeout=self.REQUEST_TIMEOUT)
+            user = await self._call(lambda: client.user(), "验证 X 会话", generation, "identity")
             self._assert_generation(generation)
             username = str(_get(user, "screen_name", "") or "")
             user_id = str(_get(user, "id", "") or "")
@@ -268,13 +350,27 @@ class XConnector:
         self.secrets.set("x.account", {"username": username, "user_id": user_id})
         self._state = "connected"
         self._message = f"已验证 @{username} 的 X 会话。"
+        self._last_error = None
+        self._verified()
         return client
 
     async def _ensure_client(self) -> Any:
-        if self._client is not None:
+        if self._client is not None and time.monotonic() - self._verified_monotonic < self.SESSION_VERIFY_INTERVAL:
             return self._client
         async with self._client_lock:
             if self._client is not None:
+                if time.monotonic() - self._verified_monotonic >= self.SESSION_VERIFY_INTERVAL:
+                    self._last_validation_attempt = time.monotonic()
+                    user = await self._call(lambda: self._client.user(), "重新验证 X 会话", self._generation, "identity")
+                    if not _get(user, "id") or not _get(user, "screen_name"):
+                        self._state = "error"
+                        self._last_error = self._message = "X 未返回有效账号身份，会话尚未确认可用。"
+                        await self._drop_client()
+                        raise XAuthenticationError(self._message)
+                    self._user = user
+                    self._username = str(_get(user, "screen_name"))
+                    self._verified()
+                    self._state = "connected"
                 return self._client
             cookies = self.secrets.get("x.cookies")
             if not cookies:
@@ -285,11 +381,13 @@ class XConnector:
             except XConnectorError as exc:
                 if generation == self._generation:
                     self._state, self._message = "error", str(exc)
+                    self._last_error = str(exc)
                 raise
             except Exception as exc:
                 if generation == self._generation:
                     self._state = "error"
                     self._message = _safe_error(exc, "验证 X 会话")
+                    self._last_error = self._message
                 raise XConnectorError(_safe_error(exc, "验证 X 会话")) from None
 
     async def status(self) -> dict[str, Any]:
@@ -297,7 +395,7 @@ class XConnector:
             return self._snapshot()
         if not self.secrets.get("x.cookies"):
             return self._snapshot()
-        if self._client is None and (
+        if (self._client is None or time.monotonic() - self._verified_monotonic >= self.SESSION_VERIFY_INTERVAL) and (
             self._last_validation_attempt == 0
             or time.monotonic() - self._last_validation_attempt >= self.STATUS_RETRY_INTERVAL
         ):
@@ -308,6 +406,7 @@ class XConnector:
                 if generation == self._generation:
                     self._state = "error"
                     self._message = str(exc)
+                    self._last_error = self._message
         return self._snapshot()
 
     async def _cancel_login(self) -> None:
@@ -331,6 +430,10 @@ class XConnector:
         self.secrets.set("x.cookies", cookies)
         self.secrets.delete("x.account")
         self._username = None
+        self._cooldowns.clear()
+        self._author_offset = 0
+        self._user_ids.clear()
+        self._persist_capture_state()
         await self._drop_client()
         try:
             async with self._client_lock:
@@ -341,6 +444,7 @@ class XConnector:
                 self._state = "error"
                 detail = str(exc) if isinstance(exc, XConnectorError) else _safe_error(exc, "验证 X 会话")
                 self._message = "会话已保存，但尚未验证：" + detail
+                self._last_error = self._message
         return self._snapshot()
 
     async def save_cookies(self, cookies: str | dict | list) -> dict[str, Any]:
@@ -411,6 +515,14 @@ class XConnector:
         self._state = "disconnected"
         self._message = "已断开 X 账号并清除本地会话。"
         self._last_validation_attempt = 0
+        self._verified_monotonic = 0
+        self._last_verified_at = self._last_success = self._last_error = None
+        self._truncated = False
+        self._warnings = []
+        self._cooldowns.clear()
+        self._user_ids.clear()
+        self._author_offset = 0
+        self._persist_capture_state()
         return self._snapshot()
 
     async def shutdown(self) -> None:
@@ -418,10 +530,24 @@ class XConnector:
         await self._cancel_login()
         await self._drop_client()
 
-    async def _call(self, request: Awaitable, operation: str, generation: int) -> Any:
+    async def _call(
+        self, request: Callable[[], Awaitable] | Awaitable, operation: str,
+        generation: int, endpoint: str,
+    ) -> Any:
+        self._assert_generation(generation)
+        until = self._cooldowns.get(endpoint, 0)
+        if until > time.time():
+            # Call sites use factories, so skipped requests create no coroutine.
+            if not callable(request) and callable(getattr(request, "close", None)):
+                request.close()
+            seconds = max(1, int(until - time.time()) + 1)
+            raise XRateLimitError(f"{operation}暂缓：X 端点处于 429 冷却期，请约 {seconds} 秒后再试。")
         try:
-            result = await asyncio.wait_for(request, timeout=self.REQUEST_TIMEOUT)
+            result = await asyncio.wait_for(request() if callable(request) else request, timeout=self.REQUEST_TIMEOUT)
             self._assert_generation(generation)
+            if endpoint in self._cooldowns:
+                self._cooldowns.pop(endpoint, None)
+                self._persist_capture_state()
             return result
         except XConnectorError:
             raise
@@ -429,36 +555,81 @@ class XConnector:
             message = _safe_error(exc, operation)
             if generation == self._generation:
                 self._state, self._message = "error", message
-                if type(exc).__name__ in {"Unauthorized", "AccountLocked", "AccountSuspended"}:
+                self._last_error = message
+                if type(exc).__name__ == "TooManyRequests" or _status_code(exc) == 429:
+                    self._cooldowns[endpoint] = self._cooldown_until(exc)
+                    self._persist_capture_state()
+                if _is_authentication_error(exc):
+                    self._state, self._message = "error", message
                     await self._drop_client()
+                    raise XAuthenticationError(message) from None
+            if type(exc).__name__ == "TooManyRequests" or _status_code(exc) == 429:
+                raise XRateLimitError(message) from None
             raise XConnectorError(message) from None
 
-    async def _pages(self, first: Awaitable, limit: int, operation: str, generation: int) -> list[Any]:
-        result = await self._call(first, operation, generation)
+    @staticmethod
+    def _warning(message: str, code: str = "partial") -> dict[str, str]:
+        return {"source": "x", "message": message, "code": code}
+
+    async def _pages(
+        self, first: Callable[[], Awaitable], limit: int, operation: str,
+        generation: int, endpoint: str, exclude: set[str] | None = None,
+        max_pages: int | None = None,
+    ) -> tuple[list[Any], list[dict[str, str]]]:
+        result = await self._call(first, operation, generation, endpoint)
         items: list[Any] = []
-        seen: set[str] = set()
+        seen = set(exclude or ())
         cursors: set[str] = set()
-        for page_number in range(self.MAX_PAGES):
+        warnings: list[dict[str, str]] = []
+        page_limit = min(self.MAX_PAGES, max_pages or self.MAX_PAGES)
+        for page_number in range(page_limit):
             page = list(result)
-            for item in page:
+            cursor = _get(result, "next_cursor")
+            for index, item in enumerate(page):
                 key = str(_get(item, "id", ""))
                 if key and key not in seen:
                     seen.add(key)
                     items.append(item)
                 if len(items) >= limit:
-                    return items
-            cursor = _get(result, "next_cursor")
-            if not page or not cursor or str(cursor) in cursors or page_number + 1 >= self.MAX_PAGES:
+                    if cursor or any(str(_get(rest, "id", "")) not in seen for rest in page[index + 1:]):
+                        warnings.append(self._warning(f"{operation}达到本次数量上限，仅保存有限采样。", "truncated"))
+                    return items, warnings
+            if not cursor:
+                break
+            if not page or str(cursor) in cursors or page_number + 1 >= page_limit:
+                warnings.append(self._warning(f"{operation}分页已停止（空页、重复游标或页数上限），结果可能不完整。", "truncated"))
                 break
             cursors.add(str(cursor))
             if not callable(getattr(result, "next", None)):
+                warnings.append(self._warning(f"{operation}有下一页游标但无法翻页，结果可能不完整。", "truncated"))
                 break
-            result = await self._call(result.next(), operation, generation)
-        return items
+            try:
+                result = await self._call(result.next, operation, generation, endpoint)
+            except (XAuthenticationError, XCancelledError):
+                raise
+            except XConnectorError as exc:
+                warnings.append(self._warning(f"{operation}后续页未完成：{exc}"))
+                break
+        return items, warnings
+
+    async def _author_id(self, client: Any, handle: str, generation: int) -> str:
+        cached = self._user_ids.get(handle.lower(), {})
+        if isinstance(cached, dict) and cached.get("user_id") and isinstance(cached.get("cached_at"), (int, float)) and 0 <= time.time() - cached["cached_at"] < self.USER_ID_CACHE_TTL:
+            return str(cached["user_id"])
+        user = await self._call(lambda: client.get_user_by_screen_name(handle), "查询 X 作者", generation, "user_by_screen_name")
+        user_id = str(_get(user, "id", "") or "")
+        if not user_id:
+            raise XConnectorError("X 作者查询未返回有效 ID。")
+        self._user_ids[handle.lower()] = {"user_id": user_id, "cached_at": time.time()}
+        if len(self._user_ids) > 1000:
+            oldest = next(iter(self._user_ids))
+            self._user_ids.pop(oldest, None)
+        self._persist_capture_state()
+        return user_id
 
     async def collect(
         self, channel: str, query: str = "", authors: list[str] | None = None, limit: int = 40
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         if channel not in {"search", "following", "recommended"}:
             raise ValueError("不支持的 X 采集频道。")
         if channel == "search" and not query.strip():
@@ -467,67 +638,103 @@ class XConnector:
         async with self._request_lock:
             client = await self._ensure_client()
             generation = self._generation
+            warnings: list[dict[str, str]] = []
             if channel == "search":
-                first = client.search_tweet(query.strip(), "Latest", count=min(limit, 20))
-                tweets = await self._pages(first, limit, "搜索 X 帖子", generation)
+                tweets, warnings = await self._pages(
+                    lambda: client.search_tweet(query.strip(), "Latest", count=min(limit, 20)),
+                    limit, "搜索 X 帖子", generation, "search",
+                )
             elif channel == "recommended":
-                tweets = await self._pages(client.get_timeline(count=min(limit, 40)), limit, "采集 X 推荐流", generation)
+                tweets, warnings = await self._pages(
+                    lambda: client.get_timeline(count=min(limit, 40)), limit,
+                    "采集 X 推荐流", generation, "home_timeline",
+                )
             else:
-                handles = list(dict.fromkeys(handle.strip().lstrip("@") for handle in (authors or []) if handle.strip()))
+                handles = list(dict.fromkeys(handle.strip().lstrip("@").lower() for handle in (authors or []) if handle.strip()))
                 if any(not re.fullmatch(r"[A-Za-z0-9_]{1,15}", handle) for handle in handles):
                     raise ValueError("X 作者需填写有效用户名，例如 naval。")
                 # Reserve 60% for the personal Following timeline, including
                 # reposts. Imported authors supplement it; they never replace it.
                 timeline_budget = max(1, limit * 3 // 5) if handles else limit
-                timeline = await self._pages(
-                    client.get_latest_timeline(count=min(timeline_budget, 40)),
-                    timeline_budget, "采集 X 关注流", generation,
+                timeline, warnings = await self._pages(
+                    lambda: client.get_latest_timeline(count=min(timeline_budget, 40)),
+                    timeline_budget, "采集 X 关注流", generation, "home_latest_timeline",
                 )
                 merged = {str(_get(tweet, "id")): tweet for tweet in timeline}
-                selected_handles = handles[:50]
+                start = self._author_offset % len(handles) if handles else 0
+                rotated = handles[start:] + handles[:start]
+                selected_handles = rotated[:min(self.MAX_AUTHORS, max(0, limit - len(merged)))]
+                attempted = 0
                 for index, handle in enumerate(selected_handles):
                     remaining = limit - len(merged)
                     if remaining <= 0:
                         break
                     authors_left = len(selected_handles) - index
                     quota = max(1, (remaining + authors_left - 1) // authors_left)
+                    attempted += 1
+                    self._author_offset = (start + attempted) % len(handles)
+                    self._persist_capture_state()
                     try:
-                        user = await self._call(client.get_user_by_screen_name(handle), "查询 X 作者", generation)
-                        batch = await self._pages(
-                            client.get_user_tweets(str(_get(user, "id")), "Tweets", count=min(quota, 40)),
-                            quota, "采集 X 作者帖子", generation,
+                        if self._cooldowns.get("user_tweets", 0) > time.time():
+                            raise XRateLimitError("X 作者帖子端点仍处于 429 冷却期，请稍后再试。")
+                        user_id = await self._author_id(client, handle, generation)
+                        batch, author_warnings = await self._pages(
+                            lambda: client.get_user_tweets(user_id, "Tweets", count=min(quota, 40)),
+                            quota, f"采集 X 作者 @{handle} 帖子", generation, "user_tweets", set(merged),
+                            max_pages=self.MAX_AUTHOR_PAGES,
                         )
+                        warnings.extend(author_warnings)
+                    except (XAuthenticationError, XCancelledError):
+                        raise
                     except XConnectorError as exc:
-                        # The caller receives an explicit failed collection,
-                        # rather than silently accepting a partial author import.
-                        raise XConnectorError("本人关注流已读取，但作者补充未完成：" + str(exc)) from None
+                        warnings.append(self._warning(f"作者 @{handle} 补充未完成：{exc}"))
+                        continue
                     for tweet in batch:
                         merged.setdefault(str(_get(tweet, "id")), tweet)
                         if len(merged) >= limit:
                             break
+                if attempted < len(handles):
+                    warnings.append(self._warning(f"本轮仅处理 {attempted}/{len(handles)} 个指定作者，其余将在后续采集轮转。", "truncated"))
                 tweets = list(merged.values())
             posts: dict[str, dict] = {}
             for tweet in tweets:
-                post = tweet_to_post(tweet, channel)
+                try:
+                    post = tweet_to_post(tweet, channel)
+                except XConnectorError as exc:
+                    warnings.append(self._warning(str(exc)))
+                    continue
                 posts.setdefault(post["external_id"], post)
                 if len(posts) >= limit:
                     break
             self._assert_generation(generation)
+            # Bind results to the identity validated for this collection, with
+            # no await between the generation guard and returning the payload.
+            for post in posts.values():
+                post["account_id"] = self._username or ""
             self._state = "connected"
-            self._message = f"已采集 {len(posts)} 条 X 信息。"
-            return list(posts.values())
+            self._warnings = warnings
+            self._truncated = any(warning["code"] == "truncated" for warning in warnings)
+            self._last_success = datetime.now(timezone.utc).isoformat()
+            partial = next((warning["message"] for warning in warnings if warning["code"] == "partial"), None)
+            self._last_error = partial
+            self._message = f"已采集 {len(posts)} 条 X 信息。" + ("存在部分失败或采样截断，详情见采集警告。" if warnings else "")
+            return list(posts.values()), warnings
 
     async def following_accounts(self, limit: int = 200) -> list[str]:
         limit = max(1, min(int(limit), 1000))
         async with self._request_lock:
             client = await self._ensure_client()
             generation = self._generation
-            users = await self._pages(
-                client.get_user_following(str(_get(self._user, "id")), count=min(limit, 40)),
-                limit, "读取 X 关注列表", generation,
+            users, warnings = await self._pages(
+                lambda: client.get_user_following(str(_get(self._user, "id")), count=min(limit, 40)),
+                limit, "读取 X 关注列表", generation, "following",
             )
             handles = [str(_get(user, "screen_name", "")).lstrip("@") for user in users]
             names = list(dict.fromkeys(handle for handle in handles if handle))
             self._state = "connected"
             self._message = f"已读取 {len(names)} 个 X 关注账号。"
+            self._warnings = warnings
+            self._truncated = any(w["code"] == "truncated" for w in warnings)
+            self._last_success = datetime.now(timezone.utc).isoformat()
+            self._last_error = next((w["message"] for w in warnings if w["code"] == "partial"), None)
             return names

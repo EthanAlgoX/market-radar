@@ -12,6 +12,7 @@ Market Radar 是独立实现的本地资讯聚合应用，核心运行路线是 
 | Reddit | `praw>=7.8,<8` | 官方 Reddit API 客户端；关键词/社区/作者采集及登录后的订阅首页 |
 | X | `twikit>=2.3,<3` | X 登录会话客户端；关键词、作者、本人 For You/Following 时间线 |
 | HTTP/RSS | `httpx>=0.27,<1`、`feedparser>=6,<7` | 请求外部服务和解析 RSS/Atom |
+| 公开正文 | `trafilatura>=2.2,<3` | 用户按需读取可访问 HTML 文章时提取正文，保留原始链接与段落 |
 | 凭证存储 | `cryptography>=44` | 本地凭证加密工具 |
 | 浏览器集成 | `playwright>=1.50,<2` | 浏览器会话集成组件；安装包不代表已下载浏览器或已完成登录 |
 | 前端 | `react=19.3.0`、`react-dom=19.3.0`、`lucide-react=1.49.0` | 独立开发的 React 界面与图标 |

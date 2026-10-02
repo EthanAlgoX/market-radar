@@ -1,3 +1,5 @@
+import type { Discussion, Post, SourcePresets } from "./types";
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,
@@ -22,3 +24,18 @@ export const json = (method: string, data?: unknown): RequestInit => ({
   method,
   ...(data === undefined ? {} : { body: JSON.stringify(data) }),
 });
+
+export const getSourcePresets = (signal?: AbortSignal) =>
+  api<SourcePresets>("/source-presets", { signal });
+
+export const getDiscussion = (id: string, signal?: AbortSignal) =>
+  api<Discussion>(`/items/${encodeURIComponent(id)}/discussion`, {
+    ...json("POST"),
+    signal,
+  });
+
+export const getArticleContent = (id: string, signal?: AbortSignal) =>
+  api<Post>(`/items/${encodeURIComponent(id)}/content`, {
+    ...json("POST"),
+    signal,
+  });

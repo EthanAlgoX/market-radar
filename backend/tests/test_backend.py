@@ -1,4 +1,5 @@
 import json
+import time
 
 from fastapi.testclient import TestClient
 
@@ -89,9 +90,10 @@ def test_collection_job_partial_failure_keeps_real_results(tmp_path):
         identity = result.json()["id"]
         for _ in range(40):
             job = client.get("/api/jobs/" + identity).json()
-            if job["status"] != "running":
+            if job["status"] not in {"queued", "running"}:
                 break
-        assert job["status"] == "completed" and job["added"] == 1
+            time.sleep(0.02)
+        assert job["status"] == "partial" and job["added"] == 1
         assert job["errors"][0]["source"] == "rss"
         assert "TOP_SECRET" not in json.dumps(job)
 
@@ -105,8 +107,9 @@ def test_following_collection_does_not_force_selected_search_topic(tmp_path):
         client.app.state.service.public.collect = collect
         job = client.post("/api/collect", json={"channel": "following", "topic": "crypto", "query": "Bitcoin", "sources": ["rss"]}).json()
         for _ in range(30):
-            if client.get("/api/jobs/" + job["id"]).json()["status"] != "running":
+            if client.get("/api/jobs/" + job["id"]).json()["status"] not in {"queued", "running"}:
                 break
+            time.sleep(0.02)
         item = client.get("/api/items?channel=following").json()["items"][0]
         assert item["content"] == "A post with no trading keywords"
         assert "crypto" not in item["topics"]

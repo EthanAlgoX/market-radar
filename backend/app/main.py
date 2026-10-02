@@ -4,6 +4,8 @@ import asyncio
 import contextlib
 import csv
 import io
+import hashlib
+import random
 import json
 import os
 import time
@@ -19,12 +21,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+import httpx
 
 from .connectors.public import PublicConnector, UnsupportedChannel
 from .connectors.reddit import RedditConnector
 from .connectors.x import XConnector
 from .security import SecretStore, fetch_url, safe_error
-from .store import Store, now_iso
+from .store import ItemVersionConflict, Store, now_iso
 from .translation import TranslationManager
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +56,7 @@ class RSSFeed(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     url: str = Field(max_length=2000)
     enabled: bool = True
+    category: str = Field(default="", max_length=100)
 
     @field_validator("url")
     @classmethod
@@ -133,11 +137,13 @@ class Service:
         self.secrets = SecretStore(data_dir)
         self.store = Store(data_dir / "market-radar.sqlite3")
         self.translation = TranslationManager(self.store)
-        self.x = XConnector(self.secrets, data_dir)
-        self.reddit = RedditConnector(self.secrets)
-        self.public = PublicConnector()
+        self.x = XConnector(self.secrets, data_dir, store=self.store)
+        self.reddit = RedditConnector(self.secrets, store=self.store)
+        self.public = PublicConnector(self.store)
         self.tasks: set[asyncio.Task] = set()
-        self.collect_lock = asyncio.Lock()
+        self.source_locks = {source: asyncio.Lock() for source in SOURCES}
+        self.source_budget = asyncio.Semaphore(3)
+        self.workers_started = False
         self.last_auto = time.monotonic()
 
     def spawn(self, coro):
@@ -199,99 +205,213 @@ class Service:
                 status, message = x_status["status"], x_status.get("message", "")
                 if status == "disconnected" and settings["rsshub_url"]:
                     status, message = "available", "使用已配置 RSSHub；本人 X 会话未连接"
-                elif status == "connected" and saved.get("status") == "error":
-                    status, message = "error", saved["message"]
+                elif status == "connected" and saved.get("status") in {"error", "partial"}:
+                    status, message = saved["status"], saved["message"]
             if source == "reddit":
-                connection = self.reddit.status()
+                connection = await self.reddit_status()
                 status, message = connection["status"], connection["message"]
-                if status == "connected" and saved.get("status") == "error":
-                    status, message = "error", saved["message"]
-            statuses.append({"source": source, "name": SOURCE_NAMES[source], "status": status, "message": message, "count": count, "last_collected_at": saved.get("last_collected_at")})
+                if status == "connected" and saved.get("status") in {"error", "partial"}:
+                    status, message = saved["status"], saved["message"]
+            statuses.append({"source": source, "name": SOURCE_NAMES[source], "status": status, "message": message, "count": count, "last_collected_at": saved.get("last_collected_at"), "last_success_at": saved.get("last_success_at"), "last_attempt_at": saved.get("last_attempt_at"), "last_error": saved.get("last_error")})
         overview["sources"] = statuses
         overview["source_statuses"] = statuses
         return overview
 
+    def start_workers(self):
+        if not self.workers_started:
+            self.workers_started = True
+            for _ in range(2):
+                self.spawn(self.worker())
+
+    async def reddit_status(self):
+        try:
+            if hasattr(self.reddit, "verify_status"):
+                return await self.reddit.verify_status()
+            return self.reddit.status()
+        except Exception:
+            return {"status": "error", "state": "error", "message": "Reddit 连接验证失败", "username": ""}
+
     def new_job(self, request: CollectRequest):
         if request.channel == "search" and not request.query.strip():
             raise HTTPException(422, "关键词搜索需要填写查询内容")
-        sources = request.sources or (["news", "rss", "x", "reddit"] if request.channel == "search" else ["x", "reddit", "rss"] if request.channel == "following" else ["x", "reddit"])
+        sources = request.sources or (["news", "rss", "x", "reddit", "hackernews"] if request.channel == "search" else ["x", "reddit", "rss"] if request.channel == "following" else ["x", "reddit"])
         sources = list(dict.fromkeys(sources))
+        request_data = {**request.model_dump(), "sources": sources}
+        settings = self.settings()
+        fingerprint = hashlib.sha256(json.dumps({"request": request_data, "settings": {key: settings.get(key) for key in ("authors", "reddit_subreddits", "rss_feeds", "rsshub_url", "google_news")},
+                                                "account_generation": {"x": getattr(self.x, "_generation", 0), "reddit": getattr(self.reddit, "generation", 0)}}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         job = {
-            "id": uuid.uuid4().hex, "status": "running", "added": 0, "total": 0,
+            "id": uuid.uuid4().hex, "status": "queued", "added": 0, "updated": 0, "duplicates": 0, "total": 0,
             "query": request.query, "channel": request.channel, "topic": request.topic,
+            "request": request_data, "fingerprint": fingerprint,
             "created_at": now_iso(), "completed_at": None,
-            "progress": [{"source": source, "status": "pending", "count": 0, "message": "等待采集"} for source in sources], "errors": [],
+            "progress": [{"source": source, "status": "pending", "count": 0, "new": 0, "updated": 0, "duplicates": 0, "retries": 0, "message": "等待采集"} for source in sources], "errors": [],
         }
-        self.store.save_job(job)
-        self.spawn(self.run_job(job, request))
-        return job
+        try:
+            queued = self.store.enqueue_job(job)
+        except ValueError as error:
+            raise HTTPException(429, str(error)) from None
+        self.start_workers()
+        return queued
+
+    async def worker(self):
+        owner = uuid.uuid4().hex
+        while True:
+            job = self.store.claim_job(owner)
+            if job is None:
+                await asyncio.sleep(0.1)
+                continue
+            try:
+                await self.run_job(job, CollectRequest.model_validate(job["request"]))
+            except asyncio.CancelledError:
+                job.update(status="queued", completed_at=None, recovered=True)
+                job.pop("lease_owner", None)
+                self.store.save_job(job)
+                raise
+            except Exception:
+                job.update(status="failed", completed_at=now_iso())
+                job.setdefault("errors", []).append({"source": "system", "message": "采集任务未完成，已保存的内容仍可查看"})
+                self.store.save_job(job)
+
+    @staticmethod
+    def retry_delay(error: Exception, attempt: int):
+        response = getattr(error, "response", None)
+        code = getattr(response, "status_code", None) or getattr(error, "status_code", None)
+        transient = isinstance(error, (httpx.TransportError, OSError, TimeoutError)) or code in {429, 500, 502, 503, 504}
+        if not transient:
+            return None
+        retry_after = response.headers.get("Retry-After", "") if response is not None else ""
+        try:
+            delay = max(0, float(retry_after))
+            if delay > 10:
+                return None
+            return delay
+        except (TypeError, ValueError):
+            return min(8, 2 ** attempt) + random.uniform(0, 0.3)
+
+    async def _collect_source(self, source, request, settings, provider_query):
+        if source == "x":
+            status = await self.x_status()
+            if status["status"] != "connected" and settings["rsshub_url"]:
+                posts, errors = await self.public.x_rsshub(request.channel, provider_query, settings["authors"]["x"], settings["rsshub_url"])
+                if request.channel != "search":
+                    errors.append({"source": "x", "code": "unverified_account", "message": "RSSHub 服务端 X 会话尚未核验为本人，来源身份请在 RSSHub 侧确认"})
+                return posts, errors
+            result = await self.x.collect(request.channel, provider_query, settings["authors"]["x"], 100)
+            posts, errors = result if isinstance(result, tuple) else (result, [])
+            # Collection can revalidate a session that was unavailable before this request.
+            current_status = await self.x_status() if any("account_id" not in post for post in posts) else {}
+            for post in posts:
+                post.setdefault("account_id", current_status.get("username") or "")
+            return posts, errors
+        if source == "reddit":
+            posts, errors = await self.reddit.collect(request.channel, provider_query, settings["authors"]["reddit"], settings.get("reddit_subreddits", []))
+            account = self.reddit.status().get("username", "")
+            for post in posts:
+                post.setdefault("account_id", account)
+            return posts, errors
+        return await self.public.collect(source, request.channel, request.query, settings)
 
     async def run_job(self, job: dict, request: CollectRequest):
-        async with self.collect_lock:
-            settings = self.settings()
-            succeeded = 0
-            for progress in job["progress"]:
-                source = progress["source"]
-                progress.update(status="running", message="正在请求真实来源")
+        from .query import compile_query
+        settings = self.settings()
+        retry_sources = {progress["source"] for progress in job["progress"] if progress["status"] not in {"completed", "partial"}}
+        previous_errors = [error for error in job.get("errors", []) if error.get("source") in retry_sources]
+        if previous_errors:
+            job["attempt_errors"] = (job.get("attempt_errors", []) + previous_errors)[-100:]
+            job["errors"] = [error for error in job["errors"] if error.get("source") not in retry_sources]
+            self.store.save_job(job)
+
+        async def run_source(progress):
+            source = progress["source"]
+            if progress["status"] in {"completed", "partial"}:
+                return
+            provider_query = compile_query(request.query, source) if request.channel == "search" else ""
+            async with self.source_locks[source], self.source_budget:
+                progress.update(status="running", message="正在请求来源", query=provider_query, started_at=now_iso())
                 self.store.save_job(job)
+                self.store.status(source, {"last_attempt_at": now_iso()})
                 try:
-                    if source == "x":
-                        status = await self.x_status()
-                        if status["status"] != "connected" and settings["rsshub_url"]:
-                            posts, errors = await asyncio.wait_for(self.public.x_rsshub(request.channel, request.query, settings["authors"]["x"], settings["rsshub_url"]), timeout=120)
-                        else:
-                            posts = await asyncio.wait_for(self.x.collect(request.channel, request.query, settings["authors"]["x"], 100), timeout=120)
-                            errors = []
-                    elif source == "reddit":
-                        posts, errors = await asyncio.wait_for(self.reddit.collect(request.channel, request.query, settings["authors"]["reddit"], settings.get("reddit_subreddits", [])), timeout=120)
-                    else:
-                        posts, errors = await asyncio.wait_for(self.public.collect(source, request.channel, request.query, settings), timeout=100)
+                    for attempt in range(3):
+                        try:
+                            posts, errors = await asyncio.wait_for(self._collect_source(source, request, settings, provider_query), timeout=120 if source in {"x", "reddit"} else 100)
+                            break
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as error:
+                            delay = self.retry_delay(error, attempt)
+                            if attempt == 2 or delay is None:
+                                raise
+                            progress.update(status="retry_wait", retries=attempt + 1, message=f"来源暂时不可用，{delay:.0f} 秒后重试")
+                            self.store.save_job(job)
+                            await asyncio.sleep(delay)
+                            progress.update(status="running", message="正在重试来源")
+                    added = updated = duplicates = 0
+                    actual_queries = sorted({post["provider_query"] for post in posts if post.get("provider_query")})
+                    if actual_queries:
+                        progress["query"] = "；".join(actual_queries[:6])
                     for post in posts:
-                        # Following / recommended never pass through keyword or topic filtering.
-                        job["added"] += int(self.store.ingest(post, request.channel, request.query, request.topic if request.channel == "search" else None))
+                        result = self.store.ingest_detailed(post, request.channel, request.query, request.topic if request.channel == "search" else None)
+                        added += int(result["added"])
+                        updated += int(result["updated"])
+                        duplicates += int(result["duplicate"])
+                    job["added"] += added
+                    job["updated"] = job.get("updated", 0) + updated
+                    job["duplicates"] = job.get("duplicates", 0) + duplicates
                     job["total"] += len(posts)
                     job["errors"].extend(errors)
-                    if errors and not posts:
-                        progress.update(status="failed", count=0, message="；".join(error["message"] for error in errors))
-                        self.store.status(source, {"status": "error", "message": progress["message"], "last_collected_at": now_iso()})
-                    else:
-                        succeeded += 1
-                        message = f"收到 {len(posts)} 条真实内容" if posts else "本次查询没有新匹配内容"
-                        if source == "reddit" and request.channel == "recommended":
-                            message += " · Reddit OAuth best 列表"
-                        if errors:
-                            message += " · 部分订阅源失败"
-                        progress.update(status="partial" if errors else "completed", count=len(posts), message=message)
-                        self.store.status(source, {"status": "connected" if source in {"reddit", "x"} else "available", "message": message, "last_collected_at": now_iso()})
+                    truncated = any(error.get("code") == "truncated" or error.get("truncated") for error in errors) or any(post.get("truncated") for post in posts)
+                    failed = bool(errors) and not posts and any(error.get("code") not in {"truncated", "cached"} and not error.get("truncated") for error in errors)
+                    message = f"收到 {len(posts)} 条 · 新增 {added} · 更新 {updated} · 重复 {duplicates}" if posts else "本次窗口没有匹配内容"
+                    if source == "reddit" and request.channel == "recommended":
+                        message += " · Reddit API Best"
+                    if errors:
+                        message += " · " + "；".join(error["message"] for error in errors)[:1000]
+                    progress.update(status="failed" if failed else "partial" if errors or truncated else "completed", count=len(posts), new=added, updated=updated, duplicates=duplicates, message=message,
+                                    truncated=truncated, coverage="limited_window" if truncated else "window", completed_at=now_iso())
+                    health = {"status": "error" if failed else "partial" if errors or truncated else "connected" if source in {"x", "reddit"} else "available", "message": message,
+                              "last_attempt_at": progress["started_at"], "last_collected_at": now_iso(), "last_error": message if errors else None,
+                              "count": len(posts), "new": added, "updated": updated, "duplicates": duplicates, "truncated": truncated, "coverage": progress["coverage"]}
+                    if not failed:
+                        health["last_success_at"] = now_iso()
+                    self.store.status(source, health)
                 except asyncio.CancelledError:
-                    progress.update(status="failed", message="采集进程已停止")
-                    job.update(status="failed", completed_at=now_iso())
+                    progress.update(status="pending", message="进程停止，重启后继续")
                     self.store.save_job(job)
                     raise
                 except Exception as error:
                     message = str(error) if isinstance(error, UnsupportedChannel) else safe_error(error, SOURCE_NAMES[source])
-                    progress.update(status="failed", count=0, message=message)
+                    progress.update(status="failed", count=0, message=message, completed_at=now_iso())
                     job["errors"].append({"source": source, "message": message})
-                    self.store.status(source, {"status": "error", "message": message, "last_collected_at": now_iso()})
+                    self.store.status(source, {"status": "error", "message": message, "last_attempt_at": progress["started_at"], "last_error": message})
                 self.store.save_job(job)
-            job.update(status="completed" if succeeded else "failed", completed_at=now_iso())
+
+        try:
+            await asyncio.gather(*(run_source(progress) for progress in job["progress"]))
+        except asyncio.CancelledError:
+            job.update(status="queued", recovered=True)
             self.store.save_job(job)
+            raise
+        successes = any(progress["status"] in {"completed", "partial"} for progress in job["progress"])
+        job.update(status="partial" if successes and (job["errors"] or any(progress["status"] != "completed" for progress in job["progress"])) else "completed" if successes else "failed", completed_at=now_iso())
+        job.pop("lease_owner", None)
+        self.store.save_job(job)
 
     async def scheduler(self):
         while True:
             await asyncio.sleep(15)
             settings = self.settings()
             interval = settings.get("auto_refresh_minutes", 0) * 60
-            if interval and time.monotonic() - self.last_auto >= interval and not self.collect_lock.locked():
+            if interval and time.monotonic() - self.last_auto >= interval and len(self.store.active_jobs()) < 10:
                 self.last_auto = time.monotonic()
                 query = " OR ".join(settings["keywords"])
                 connected = []
-                if (await self.x_status())["status"] == "connected" or settings["rsshub_url"]:
+                if (await self.x_status())["status"] == "connected":
                     connected.append("x")
-                if self.reddit.status()["status"] == "connected":
+                if (await self.reddit_status())["status"] == "connected":
                     connected.append("reddit")
                 if query:
-                    self.new_job(CollectRequest(query=query, sources=["news", "rss", *connected]))
+                    self.new_job(CollectRequest(query=query[:500], sources=["news", "rss", "hackernews", *connected]))
                 following_sources = connected + (["rss"] if any(feed.get("enabled") for feed in settings["rss_feeds"]) else [])
                 if following_sources:
                     self.new_job(CollectRequest(channel="following", sources=following_sources))
@@ -304,6 +424,7 @@ def create_app(data_dir: Path | None = None):
     async def lifespan(application):
         service = Service(data_dir or Path(os.environ.get("RADAR_DATA_DIR", ROOT / "data")))
         application.state.service = service
+        service.start_workers()
         scheduler = service.spawn(service.scheduler())
         try:
             yield
@@ -315,7 +436,7 @@ def create_app(data_dir: Path | None = None):
             if hasattr(service.x, "shutdown"):
                 await service.x.shutdown()
 
-    application = FastAPI(title="Market Radar", version="0.1.0", lifespan=lifespan)
+    application = FastAPI(title="Market Radar", version="0.2.0", lifespan=lifespan)
     application.add_middleware(CORSMiddleware, allow_origins=sorted(ALLOWED_ORIGINS), allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Content-Type"], allow_credentials=False)
 
     @application.middleware("http")
@@ -354,7 +475,7 @@ def create_app(data_dir: Path | None = None):
     async def health(request: Request):
         with svc(request).store.connect() as db:
             db.execute("SELECT 1").fetchone()
-        return {"status": "ok", "version": "0.1.0"}
+        return {"status": "ok", "version": "0.2.0"}
 
     @application.get("/api/overview")
     async def overview(request: Request):
@@ -414,6 +535,61 @@ def create_app(data_dir: Path | None = None):
     async def settings(request: Request):
         return svc(request).settings()
 
+    @application.get("/api/source-presets")
+    async def source_presets():
+        from .config import SOURCE_PRESETS
+        return SOURCE_PRESETS
+
+    @application.post("/api/items/{identity}/discussion")
+    async def discussion(identity: str, request: Request, limit: int = Query(20, ge=1, le=40)):
+        from .discussion import hackernews_comments
+        service = svc(request)
+        item = service.store.get_item(identity)
+        if item is None:
+            raise HTTPException(404, "内容不存在")
+        if item["source"] not in {"reddit", "hackernews"}:
+            raise HTTPException(400, "此来源尚未接入讨论正文，请打开原帖查看")
+        account = service.reddit.status().get("username", "") if item["source"] == "reddit" else "public"
+        cache_key = f"discussion:{item['source']}:{account}:{item['external_id']}:{limit}"
+        cached = service.store.get_checkpoint(cache_key)
+        if cached and time.time() - cached.get("fetched_at", 0) < 600:
+            return {"items": cached["items"], "status": "completed", "message": "使用最近 10 分钟的讨论缓存", "cached": True}
+        try:
+            if item["source"] == "reddit":
+                comments = await asyncio.wait_for(service.reddit.comments(item["external_id"], limit=limit), timeout=40)
+            else:
+                comments = await asyncio.wait_for(hackernews_comments(item["external_id"], limit=limit), timeout=25)
+        except Exception as error:
+            raise HTTPException(502, safe_error(error, "讨论正文")) from None
+        service.store.save_checkpoint(cache_key, {"items": comments, "fetched_at": time.time()})
+        return {"items": comments, "status": "completed", "message": f"已加载 {len(comments)} 条讨论；完整讨论请查看原帖", "cached": False}
+
+    @application.post("/api/items/{identity}/content")
+    async def article_content(identity: str, request: Request):
+        from .article import ArticleUnavailable, extract_article
+        service = svc(request)
+        item = service.store.get_item(identity)
+        if item is None:
+            raise HTTPException(404, "内容不存在")
+        if item["source"] not in {"rss", "news"}:
+            raise HTTPException(400, "此操作仅支持资讯文章；社区帖子请打开外链文章查看")
+        if item.get("content_kind") == "extracted_html":
+            return item
+        try:
+            result = await asyncio.wait_for(extract_article(item.get("external_url") or item["url"]), timeout=35)
+        except ArticleUnavailable as error:
+            raise HTTPException(400, str(error)) from None
+        except Exception as error:
+            raise HTTPException(502, safe_error(error, "公开正文")) from None
+        result.update(summary=result["content"][:280], summary_kind="extractive", content_extracted_at=now_iso())
+        try:
+            updated = service.store.update_item(identity, result, expected_item=item)
+        except ItemVersionConflict as error:
+            raise HTTPException(409, str(error)) from None
+        if updated is None:
+            raise HTTPException(404, "内容不存在")
+        return updated
+
     @application.put("/api/settings")
     async def save_settings(payload: SettingsUpdate, request: Request):
         service = svc(request)
@@ -448,7 +624,7 @@ def create_app(data_dir: Path | None = None):
     @application.get("/api/connections")
     async def connections(request: Request):
         service = svc(request)
-        return {"x": await service.x_status(), "reddit": service.reddit.status()}
+        return {"x": await service.x_status(), "reddit": await service.reddit_status()}
 
     @application.get("/api/connections/x")
     async def x_connection(request: Request):

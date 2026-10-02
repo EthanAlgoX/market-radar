@@ -45,7 +45,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { api, json } from "./api";
+import { api, getArticleContent, getDiscussion, getSourcePresets, json } from "./api";
 import {
   sameOriginal,
   translatedPost,
@@ -55,11 +55,16 @@ import {
 import type {
   Channel,
   Connection,
+  Discussion,
+  DiscussionComment,
+  FeedSource,
   Job,
   Overview,
   Post,
   Settings,
   SourceKey,
+  SourcePresets,
+  SourceState,
   View,
 } from "./types";
 
@@ -138,6 +143,33 @@ const splitList = (s: string) => [
 ];
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "暂时无法完成，请重试。";
+const activeJob = (status?: string) => status === "queued" || status === "running";
+const webUrl = (value?: string | null) => {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+};
+const jobOutcome = (job: Job) =>
+  job.status === "failed"
+    ? "本次采集失败，已取得的内容仍保留。请查看来源说明。"
+    : job.status === "partial"
+      ? `部分采集完成，新增 ${job.added ?? 0} 条；请查看未完成来源。`
+      : `采集完成，新增 ${job.added ?? 0} 条信息。`;
+
+function sourceRequirements(requirements: string[]) {
+  const labels: Record<string, string> = {
+    browser_runtime: "RSSHub 实例需能运行浏览器",
+    XUEQIU_COOKIES: "在实例中配置本人的雪球登录 Cookie",
+    isolated_personal_instance: "使用仅本人访问的独立 RSSHub 实例",
+    declared_contact_user_agent: "请求中需声明可联系的身份信息",
+    access_validation: "启用前需验证访问是否可用",
+  };
+  return requirements.map((requirement) => labels[requirement] || requirement).join("；");
+}
 
 function previewText(item: Post) {
   const text = item.summary || item.content.slice(0, 240);
@@ -214,6 +246,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [job, setJob] = useState<Job | null>(null);
+  const [jobPollError, setJobPollError] = useState("");
   const [starting, setStarting] = useState(false);
   const [toast, setToast] = useState("");
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -348,38 +381,39 @@ export default function App() {
     return () => clearInterval(timer);
   }, [connections.x?.state, pendingAuth, loadConnections, tell]);
   useEffect(() => {
-    if (!job || job.status !== "running") return;
+    if (!job || !activeJob(job.status)) return;
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
+      let keepPolling = true;
       try {
         const current = await api<Job>(`/jobs/${job.id}`);
         if (cancelled) return;
         setJob(current);
+        setJobPollError("");
+        keepPolling = activeJob(current.status);
         if (
-          current.status !== "running" &&
+          !activeJob(current.status) &&
           !completeJobs.current.has(current.id)
         ) {
           completeJobs.current.add(current.id);
+          tell(jobOutcome(current));
           await Promise.allSettled([
             loadItems(),
             loadOverview(),
             loadConnections(),
           ]);
-          tell(
-            current.status === "failed"
-              ? "本次采集未完成，请查看来源状态。"
-              : `采集完成，新增 ${current.added} 条信息。`,
-          );
         }
       } catch (error) {
-        if (!cancelled) tell(errorMessage(error));
+        if (!cancelled) setJobPollError(errorMessage(error));
+      } finally {
+        if (!cancelled && keepPolling) timer = setTimeout(() => void tick(), 1200);
       }
     };
-    const timer = setInterval(() => void tick(), 1200);
     void tick();
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      clearTimeout(timer);
     };
   }, [job?.id, job?.status, loadItems, loadOverview, loadConnections, tell]);
 
@@ -387,7 +421,7 @@ export default function App() {
     const channel = customChannel || (view === "bookmarked" ? "search" : view);
     const text = customQuery ?? query;
     const personalSources = [
-      ...(connections.x?.state === "connected" || settings?.rsshub_url
+      ...(connections.x?.state === "connected"
         ? ["x"]
         : []),
       ...(connections.reddit?.state === "connected" ? ["reddit"] : []),
@@ -400,16 +434,31 @@ export default function App() {
       return;
     }
     if (
-      channel !== "search" &&
-      !["x", "reddit"].some((s) => connections[s]?.state === "connected") &&
-      !settings?.rsshub_url
+      channel === "recommended" && !personalSources.length
     ) {
       setPage("settings");
       setSettingsTab("accounts");
-      tell("先连接 X 或 Reddit，再拉取你的个人信息流。");
+      tell("先连接 X 或 Reddit，再拉取账号推荐流。RSSHub 地址尚不能证明本人首页可用。");
+      return;
+    }
+    const sources = source !== "all"
+      ? [source]
+      : channel === "search"
+        ? ["news", "hackernews", ...rssSources, ...personalSources]
+        : channel === "following"
+          ? [...personalSources, ...rssSources]
+          : personalSources;
+    if (channel === "following" && !sources.some((s) =>
+      s === "rss" ? rssSources.length > 0 : personalSources.includes(s))) {
+      tell("我的关注需要已连接账号或已启用的 RSS 订阅。可在来源设置中添加订阅。");
+      return;
+    }
+    if (channel === "recommended" && sources.some((s) => !personalSources.includes(s))) {
+      tell("账号推荐流仅支持已连接的 X 或 Reddit，请调整来源选择。");
       return;
     }
     setStarting(true);
+    setJobPollError("");
     if (customQuery) setQuery(customQuery);
     if (view === "bookmarked" || customChannel) setView(channel);
     setFilter("");
@@ -417,22 +466,17 @@ export default function App() {
       const current = await api<Job>(
         "/collect",
         json("POST", {
-          query: text.trim(),
+          query: channel === "search" ? text.trim() : "",
           channel,
-          topic: topic === "all" ? undefined : topic,
-          sources:
-            source !== "all"
-              ? [source]
-              : channel === "search"
-                ? ["news", ...rssSources, ...personalSources]
-                : channel === "following"
-                  ? [...personalSources, ...rssSources]
-                  : personalSources,
+          topic: channel !== "search" || topic === "all" ? undefined : topic,
+          sources,
         }),
       );
       setJob(current);
-      if (current.status !== "running") {
+      if (!activeJob(current.status)) {
         await Promise.allSettled([loadItems(), loadOverview()]);
+        completeJobs.current.add(current.id);
+        tell(jobOutcome(current));
       }
     } catch (error) {
       tell(errorMessage(error));
@@ -472,7 +516,7 @@ export default function App() {
     setMobileMenu(false);
     setQuery(TOPICS.find((t) => t.id === id)?.query || TOPICS[0].query);
   }
-  const busy = starting || job?.status === "running";
+  const busy = starting || activeJob(job?.status);
   const counts = overview?.counts;
   const currentTopic = TOPICS.find((t) => t.id === topic)!;
   const currentChannel = CHANNELS.find((c) => c.id === view)!;
@@ -784,7 +828,7 @@ export default function App() {
               </button>
             </div>
 
-            {job && <JobNotice job={job} close={() => setJob(null)} />}
+            {job && <JobNotice job={job} pollError={jobPollError} close={() => setJob(null)} />}
             <div
               className={`reading-workspace ${selected ? "has-selection" : ""}`}
             >
@@ -903,7 +947,7 @@ export default function App() {
                       {filter || source !== "all"
                         ? "调整关键词或数据来源，查看已收录的信息。"
                         : view === "following"
-                          ? "连接 X 或 Reddit 后，拉取关注信息；即使没有关键词，也会收录。"
+                          ? "启用 RSS 订阅或连接 X、Reddit 后拉取关注内容；即使没有关键词，也会收录。"
                           : view === "recommended"
                             ? "连接账号后可以拉取 X 推荐流和 Reddit API 首页。"
                             : view === "bookmarked"
@@ -1066,6 +1110,7 @@ export default function App() {
               </section>
               {selected ? (
                 <ReadPane
+                  key={selected.id}
                   item={selected}
                   close={() => setSelected(null)}
                   patch={(changes) => void patchItem(selected, changes)}
@@ -1102,21 +1147,7 @@ export default function App() {
                         管理
                       </button>
                     </div>
-                    {(overview?.sources || []).map((s) => (
-                      <div className="source-status-row" key={s.source}>
-                        <SourceMark source={s.source} />
-                        <span>{s.name}</span>
-                        <span className={`source-status ${s.status}`}>
-                          {s.status === "connected"
-                            ? "已连接"
-                            : s.status === "available"
-                              ? "可用"
-                              : s.status === "error"
-                                ? "需检查"
-                                : "未连接"}
-                        </span>
-                      </div>
-                    ))}
+                    <SourceHealth sources={overview?.sources || []} />
                   </div>
                   <div className="context-section">
                     <div className="context-title">收录方式</div>
@@ -1131,7 +1162,7 @@ export default function App() {
                       <UsersRound size={16} />
                       <div>
                         <strong>我的关注</strong>
-                        <p>关注账号的内容独立保留。</p>
+                        <p>关注账号和 RSS 订阅独立保留。</p>
                       </div>
                     </div>
                     <div className="channel-note">
@@ -1156,6 +1187,7 @@ export default function App() {
           <SettingsPage
             settings={settings}
             connections={connections}
+            sources={overview?.sources || []}
             tab={settingsTab}
             setTab={setSettingsTab}
             save={async (value) => {
@@ -1191,11 +1223,46 @@ export default function App() {
   );
 }
 
-function JobNotice({ job, close }: { job: Job; close: () => void }) {
-  const running = job.status === "running";
+function SourceHealth({ sources }: { sources: SourceState[] }) {
+  return <div className="source-health-list">
+    {sources.map((s) => <div className="source-health" key={s.source}>
+      <div className="source-status-row">
+        <SourceMark source={s.source} />
+        <span>{s.name}</span>
+        <span className={`source-status ${s.status}`}>
+          {s.status === "connected" ? "已连接" : s.status === "available" ? "可用" :
+            s.status === "partial" ? "部分可用" : s.status === "rate_limited" ? "限流中" :
+            ["error", "failed"].includes(s.status) ? "需检查" : s.status === "connecting" ? "连接中" :
+              s.status === "disabled" ? "未启用" : ["disconnected", "unconfigured", "not_configured"].includes(s.status) ? "未连接" : "待检查"}
+        </span>
+      </div>
+      <div className="source-health-meta">
+        <span>最近成功：{s.last_success_at ? timeLabel(s.last_success_at, true) : "尚无成功记录"}</span>
+        {s.last_attempt_at && <span>最近尝试：{timeLabel(s.last_attempt_at, true)}</span>}
+        {s.message && <p>{s.message}</p>}
+      </div>
+    </div>)}
+    {!sources.length && <p className="text-note">来源状态尚未加载。</p>}
+  </div>;
+}
+
+function coverageLabel(value: Job["progress"][number]["coverage"]) {
+  if (value === "window") return "本次采集窗口";
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (value && typeof value === "object") {
+    return Object.entries(value).map(([key, entry]) => {
+      const labels: Record<string, string> = { pages: "页数", items: "取得条数", limit: "上限", truncated: "是否截断", complete: "是否完整" };
+      return `${labels[key] || key}：${typeof entry === "boolean" ? (entry ? "是" : "否") : String(entry)}`;
+    }).join(" · ");
+  }
+  return "";
+}
+
+function JobNotice({ job, close, pollError }: { job: Job; close: () => void; pollError: string }) {
+  const running = activeJob(job.status);
   return (
     <div
-      className={`job-notice ${job.status === "failed" ? "has-error" : ""}`}
+      className={`job-notice ${["failed", "partial"].includes(job.status) ? "has-error" : ""}`}
       role="status"
     >
       <div className="job-title">
@@ -1207,11 +1274,13 @@ function JobNotice({ job, close }: { job: Job; close: () => void }) {
           <CheckCircle2 size={17} />
         )}
         <strong>
-          {running
-            ? "正在从各个来源收集信息"
+          {job.status === "queued"
+            ? "采集任务已排队"
+            : running
+              ? "正在从各个来源收集信息"
             : job.status === "failed"
-              ? "本次采集未完成"
-              : `收录完成 · 新增 ${job.added} 条`}
+              ? "本次采集失败 · 已取得内容仍保留"
+              : `${job.status === "partial" ? "部分采集完成" : "收录完成"} · 新增 ${job.added ?? 0} 条`}
         </strong>
         {!running && (
           <button
@@ -1223,10 +1292,12 @@ function JobNotice({ job, close }: { job: Job; close: () => void }) {
           </button>
         )}
       </div>
-      {job.progress.length > 0 && (
+      {pollError && <p className="job-poll-error">暂时无法读取进度：{pollError}。正在自动重试，任务结果尚未确认。</p>}
+      {(job.progress || []).length > 0 && (
         <div className="job-sources">
-          {job.progress.map((p, i) => (
-            <span key={`${p.source}-${i}`} className={`job-source ${p.status}`}>
+          {(job.progress || []).map((p, i) => (
+            <details key={`${p.source}-${i}`} className="job-source-detail">
+            <summary className={`job-source ${p.status}`}>
               {p.status === "running" ? (
                 <LoaderCircle size={12} className="spin" />
               ) : ["success", "completed"].includes(p.status) ? (
@@ -1237,15 +1308,27 @@ function JobNotice({ job, close }: { job: Job; close: () => void }) {
                 <Clock3 size={12} />
               )}
               {SOURCES[p.source as SourceKey] || p.source}
-              {p.count ? ` ${p.count} 条` : ""}
-            </span>
+              <span>{p.status === "running" ? "采集中" : p.status === "queued" || p.status === "pending" ? "待采集" :
+                p.status === "retry_wait" ? "等待重试" : ["success", "completed"].includes(p.status) ? "完成" : p.status === "partial" ? "部分完成" :
+                  ["error", "failed"].includes(p.status) ? "失败" : p.status === "skipped" ? "未采集" : p.status}</span>
+              {p.count !== undefined ? ` · ${p.count} 条` : ""}
+              <ChevronDown size={12} />
+            </summary>
+            <div className="job-source-body">
+              <p>新增 {p.new ?? p.added ?? "—"} · 更新 {p.updated ?? "—"} · 重复 {p.duplicates ?? "—"} · 重试 {p.retries ?? "—"}</p>
+              {(p.query || p.queries?.length) && <p>实际查询：{p.queries?.join(" / ") || p.query}</p>}
+              {coverageLabel(p.coverage) && <p>采集覆盖：{coverageLabel(p.coverage)}</p>}
+              {p.truncated && <p>达到本次采集上限，尚未覆盖全部内容。</p>}
+              {p.message && <p>{p.message}</p>}
+            </div>
+            </details>
           ))}
         </div>
       )}
-      {job.errors.length > 0 && (
+      {(job.errors || []).length > 0 && (
         <details className="job-errors">
           <summary>{job.errors.length} 个来源需要检查</summary>
-          {job.errors.map((e, i) => (
+          {(job.errors || []).map((e, i) => (
             <p key={i}>
               <strong>{SOURCES[e.source as SourceKey] || e.source}：</strong>
               {e.message}
@@ -1255,6 +1338,26 @@ function JobNotice({ job, close }: { job: Job; close: () => void }) {
       )}
     </div>
   );
+}
+
+function TextParagraphs({ text }: { text: string }) {
+  return <>{text.split(/\n\s*\n/).filter((paragraph) => paragraph.trim()).map((paragraph, index) =>
+    <p key={index} dir="auto">{paragraph}</p>)}</>;
+}
+
+function commentDepth(comment: DiscussionComment, comments: DiscussionComment[]) {
+  if (typeof comment.depth === "number") return Math.min(3, Math.max(0, comment.depth));
+  let parent = comment.parent_id;
+  let depth = 0;
+  const seen = new Set([comment.external_id]);
+  while (parent && depth < 3 && !seen.has(parent)) {
+    seen.add(parent);
+    const ancestor = comments.find((entry) => entry.external_id === parent);
+    if (!ancestor) break;
+    depth += 1;
+    parent = ancestor.parent_id;
+  }
+  return depth;
 }
 
 function ReadPane({
@@ -1279,6 +1382,17 @@ function ReadPane({
   const display = translatedPost(item, chinese, translationModel);
   const [tab, setTab] = useState<"summary" | "original">("summary");
   const [summarizing, setSummarizing] = useState(false);
+  const [discussion, setDiscussion] = useState<Discussion | null>(null);
+  const [discussionLoading, setDiscussionLoading] = useState(false);
+  const [discussionError, setDiscussionError] = useState("");
+  const [contentLoading, setContentLoading] = useState(false);
+  const [contentError, setContentError] = useState("");
+  const discussionRequest = useRef<AbortController | null>(null);
+  const contentRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => {
+    discussionRequest.current?.abort();
+    contentRequest.current?.abort();
+  }, []);
   useEffect(() => setTab("summary"), [item.id]);
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -1304,6 +1418,42 @@ function ReadPane({
       setSummarizing(false);
     }
   }
+  async function loadDiscussion() {
+    if (discussionLoading) return;
+    const controller = new AbortController();
+    discussionRequest.current = controller;
+    setDiscussionLoading(true);
+    setDiscussionError("");
+    try {
+      const result = await getDiscussion(item.id, controller.signal);
+      if (!controller.signal.aborted) setDiscussion(result);
+    } catch (error) {
+      if (!controller.signal.aborted) setDiscussionError(errorMessage(error));
+    } finally {
+      if (!controller.signal.aborted) setDiscussionLoading(false);
+    }
+  }
+  async function loadArticleContent() {
+    if (contentLoading) return;
+    const controller = new AbortController();
+    contentRequest.current = controller;
+    setContentLoading(true);
+    setContentError("");
+    try {
+      const result = await getArticleContent(item.id, controller.signal);
+      if (!controller.signal.aborted) {
+        update(result);
+        setTab("original");
+        tell("文章正文已读取，原链接已保留。");
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) setContentError(errorMessage(error));
+    } finally {
+      if (!controller.signal.aborted) setContentLoading(false);
+    }
+  }
+  const originalUrl = webUrl(item.url);
+  const externalUrl = webUrl(item.external_url);
   return (
     <aside className="read-pane">
       <div className="read-pane-toolbar">
@@ -1346,15 +1496,31 @@ function ReadPane({
             {timeLabel(item.published_at, true)}
           </time>
         </div>
-        <a
+        <div className="detail-link-actions">
+        {originalUrl && <a
           className="secondary-button original-button"
-          href={item.url}
+          href={originalUrl}
           target="_blank"
           rel="noopener noreferrer"
         >
           <ExternalLink size={15} />
-          打开原文
-        </a>
+          {["x", "reddit", "hackernews"].includes(item.source) ? "打开原始帖子" : "打开来源原文"}
+        </a>}
+        {externalUrl && externalUrl !== originalUrl && <a
+          className="secondary-button original-button"
+          href={externalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+        ><ExternalLink size={15} />打开外链文章</a>}
+        </div>
+        {["rss", "news"].includes(item.source) && item.content_kind !== "extracted_html" &&
+          <div className="article-content-action">
+            <button className="quiet-button" disabled={contentLoading} onClick={() => void loadArticleContent()}>
+              {contentLoading ? <LoaderCircle size={14} className="spin" /> : <BookOpen size={14} />}
+              {contentLoading ? "正在读取正文" : contentError ? "重试读取正文" : "读取文章正文"}
+            </button>
+            {contentError && <p className="inline-error" role="alert">正文未能读取：{contentError}。现有摘录与原链接已保留。</p>}
+          </div>}
         <div className="detail-tabs">
           <button
             className={tab === "summary" ? "active" : ""}
@@ -1385,8 +1551,8 @@ function ReadPane({
               )}
             </div>
             <div className="detail-body">
-              {previewText(display) ||
-                "此来源只提供标题或简短文本，请打开原文阅读完整内容。"}
+              <TextParagraphs text={previewText(display) ||
+                "此来源只提供标题或简短文本，请打开原文阅读完整内容。"} />
             </div>
             {llmEnabled && (
               <button
@@ -1424,21 +1590,11 @@ function ReadPane({
                 </div>
               </div>
             )}
-            <div className="detail-section">
-              <h3>收录来源</h3>
-              <p className="detail-secondary">
-                {item.channels
-                  .map((c) => CHANNELS.find((v) => v.id === c)?.label || c)
-                  .join(" · ")}
-                <br />
-                {timeLabel(item.collected_at, true)}
-              </p>
-            </div>
           </>
         ) : (
           <>
             <div className="detail-body original-text">
-              {display.content || "此来源只提供标题和链接。"}
+              <TextParagraphs text={display.content || "此来源只提供标题和链接。"} />
             </div>
             <p className="text-note">
               {chinese && translationReady(item, translationModel)
@@ -1449,12 +1605,55 @@ function ReadPane({
               <details className="original-disclosure">
                 <summary>查看原始文本</summary>
                 <div className="detail-body">
-                  {item.content || "此来源只提供标题和链接。"}
+                  <TextParagraphs text={item.content || "此来源只提供标题和链接。"} />
                 </div>
               </details>
             )}
           </>
         )}
+        <div className="detail-section provenance-section">
+          <h3>收录与来源</h3>
+          <p className="detail-secondary">
+            {item.channels.map((c) => CHANNELS.find((v) => v.id === c)?.label || c).join(" · ")}
+            <br />{timeLabel(item.collected_at, true)}
+          </p>
+          {!!item.observations?.length && <ul className="observation-list">
+            {item.observations.map((observation, index) => <li key={`${observation.source}-${observation.external_id}-${index}`}>
+              <strong>{observation.source_name || SOURCES[observation.source as SourceKey] || observation.source || "来源记录"}</strong>
+              {observation.author && <span>{observation.author}</span>}
+              {(observation.channels?.length || observation.channel) && <span>{(observation.channels?.length ? observation.channels : [observation.channel]).map((value) => CHANNELS.find((channel) => channel.id === value)?.label || value).join(" · ")}</span>}
+              {(observation.queries?.length || observation.query) && <p>研究查询：{observation.queries?.join(" / ") || observation.query}</p>}
+              {observation.provider_query && observation.provider_query !== observation.query && <p>来源查询：{observation.provider_query}</p>}
+              {(observation.collected_at || observation.observed_at) && <time>{timeLabel(observation.collected_at || observation.observed_at || null, true)}</time>}
+              {webUrl(observation.url) && <a href={webUrl(observation.url)} target="_blank" rel="noopener noreferrer">查看此来源 <ExternalLink size={12} /></a>}
+            </li>)}
+          </ul>}
+        </div>
+        {["reddit", "hackernews"].includes(item.source) && <div className="detail-section discussion-section">
+          <div className="discussion-heading">
+            <h3>评论讨论</h3>
+            <button className="text-button" disabled={discussionLoading} onClick={() => void loadDiscussion()}>
+              {discussionLoading ? <LoaderCircle size={13} className="spin" /> : <MessageSquare size={13} />}
+              {discussionLoading ? "正在加载" : discussionError ? "重试评论" : discussion ? "刷新评论" : "加载评论"}
+            </button>
+          </div>
+          {!discussion && !discussionError && !discussionLoading && <p className="text-note">点击后从来源读取部分评论；完整讨论可打开原始帖子查看。</p>}
+          {discussionError && <p className="inline-error" role="alert">评论未能加载：{discussionError}。可重试或打开原始帖子。</p>}
+          {discussionLoading && <p className="text-note" role="status">正在读取来源评论…</p>}
+          {discussion && <>
+            {discussion.message && <p className="text-note">{discussion.message}</p>}
+            {!discussion.items.length && <p className="text-note">本次没有取得可显示的评论。请查看原始帖子。</p>}
+            <ol className="discussion-list">
+              {discussion.items.map((comment) => <li key={comment.external_id} style={{ marginInlineStart: `${commentDepth(comment, discussion.items) * 10}px` }}>
+                <div className="comment-meta"><strong>{comment.author || "匿名作者"}</strong><time>{timeLabel(comment.published_at)}</time></div>
+                <div className="comment-content"><TextParagraphs text={comment.content || "此评论没有可用文本。"} /></div>
+                <div className="comment-footer">{comment.score !== undefined && <span>{comment.score.toLocaleString()} 分</span>}
+                  {webUrl(comment.url) && <a href={webUrl(comment.url)} target="_blank" rel="noopener noreferrer">原评论 <ExternalLink size={11} /></a>}
+                </div>
+              </li>)}
+            </ol>
+          </>}
+        </div>}
         {Object.values(item.metrics || {}).some((v) => v > 0) && (
           <div className="detail-metrics">
             {Object.entries(item.metrics)
@@ -1487,6 +1686,7 @@ type SettingsTab = "accounts" | "preferences" | "feeds";
 function SettingsPage({
   settings,
   connections,
+  sources,
   tab,
   setTab,
   save,
@@ -1498,6 +1698,7 @@ function SettingsPage({
 }: {
   settings: Settings | null;
   connections: Record<string, Connection>;
+  sources: SourceState[];
   tab: SettingsTab;
   setTab: (tab: SettingsTab) => void;
   save: (value: unknown) => Promise<void>;
@@ -1518,6 +1719,29 @@ function SettingsPage({
   const [newFeedName, setNewFeedName] = useState("");
   const [newFeedUrl, setNewFeedUrl] = useState("");
   const [busy, setBusy] = useState("");
+  const [presets, setPresets] = useState<SourcePresets | null>(null);
+  const [presetsLoading, setPresetsLoading] = useState(false);
+  const [presetsError, setPresetsError] = useState("");
+  const presetRequest = useRef<AbortController | null>(null);
+  const loadPresets = useCallback(async () => {
+    presetRequest.current?.abort();
+    const controller = new AbortController();
+    presetRequest.current = controller;
+    setPresetsLoading(true);
+    setPresetsError("");
+    try {
+      const result = await getSourcePresets(controller.signal);
+      if (!controller.signal.aborted) setPresets(result);
+    } catch (error) {
+      if (!controller.signal.aborted) setPresetsError(errorMessage(error));
+    } finally {
+      if (!controller.signal.aborted) setPresetsLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void loadPresets();
+    return () => presetRequest.current?.abort();
+  }, [loadPresets]);
   useEffect(() => {
     if (!settings) return;
     setDraft(settings);
@@ -1587,6 +1811,27 @@ function SettingsPage({
       previous ? ({ ...previous, [field]: value } as Settings) : previous,
     );
   }
+  function addPresets(feeds: FeedSource[]) {
+    if (!draft) return;
+    const known = new Set(draft.rss_feeds.map((feed) => webUrl(feed.url) || feed.url));
+    const knownIds = new Set(draft.rss_feeds.map((feed) => feed.id));
+    const additions = feeds.filter((feed) => {
+      const url = webUrl(feed.url);
+      if (!url || known.has(url)) return false;
+      known.add(url);
+      return true;
+    }).map((feed) => {
+      const id = knownIds.has(feed.id) ? crypto.randomUUID() : feed.id;
+      knownIds.add(id);
+      return { ...feed, id, enabled: feed.enabled ?? true };
+    });
+    if (!additions.length) {
+      tell("这些来源已在订阅列表中；可在列表中启用，不会改写已有配置。");
+      return;
+    }
+    updateDraft("rss_feeds", [...draft.rss_feeds, ...additions]);
+    tell(`已加入 ${additions.length} 个待保存来源，请点击“保存来源”。`);
+  }
   const xState = connections.x?.state || "disconnected";
   const redditState = connections.reddit?.state || "disconnected";
   const configuredLlm =
@@ -1633,6 +1878,10 @@ function SettingsPage({
       </div>
       {tab === "accounts" ? (
         <div className="settings-content">
+          <section className="connection-panel">
+            <div className="connection-heading"><div><h2>来源健康</h2><p>最近成功与最近尝试分别记录，失败不会被显示为成功更新。</p></div></div>
+            <div className="connection-body"><SourceHealth sources={sources} /></div>
+          </section>
           <section className="connection-panel">
             <div className="connection-heading">
               <div className="connection-title">
@@ -1919,8 +2168,8 @@ function SettingsPage({
                   />
                 </label>
                 <p className="text-note">
-                  用于 X 等网站的 RSS 路由。个人首页需要在 RSSHub
-                  中配置本人的登录会话；未配置时使用上方 X 连接。
+                  保存地址仅表示已配置实例。本人首页仍需配置自己的会话并实际验证；当前尚未验证 RSSHub 本人首页。
+                  普通公开路由可作为 RSS 订阅加入，账号推荐流请使用上方的账号连接。
                 </p>
                 <button
                   className="secondary-button"
@@ -1999,7 +2248,7 @@ function SettingsPage({
             <div className="connection-heading">
               <div>
                 <h2>自动更新</h2>
-                <p>网站服务运行期间，按设定的间隔更新研究关键词。</p>
+                <p>网站服务运行期间，按设定间隔更新关键词、关注订阅和已连接账号推荐。</p>
               </div>
             </div>
             <div className="connection-body">
@@ -2111,11 +2360,42 @@ function SettingsPage({
         </div>
       ) : (
         <div className="settings-content">
+          <section className="connection-panel preset-panel">
+            <div className="connection-heading">
+              <div><h2>财经来源预设</h2><p>加入公开财经 RSS；已有来源的名称、地址和启停状态会保留。</p></div>
+              {presets?.feeds?.length ? <button className="secondary-button" disabled={!!busy} onClick={() => addPresets(presets.feeds)}><Plus size={15} />加入全部</button> : null}
+            </div>
+            <div className="connection-body">
+              {presetsLoading && <p className="text-note" role="status"><LoaderCircle size={14} className="spin" /> 正在读取财经来源…</p>}
+              {presetsError && <div className="inline-error" role="alert"><p>财经预设未能加载：{presetsError}</p><button className="text-button" onClick={() => void loadPresets()}>重试读取</button></div>}
+              {!presetsLoading && !presetsError && !presets?.feeds?.length && <p className="text-note">暂无预设来源；可以在下方手动添加 RSS。</p>}
+              <div className="preset-list">
+                {(presets?.feeds || []).map((feed) => {
+                  const existing = draft.rss_feeds.some((current) => (webUrl(current.url) || current.url) === (webUrl(feed.url) || feed.url));
+                  return <div className="preset-row" key={feed.id}>
+                    <div><strong>{feed.name}</strong>{feed.category && <span className="preset-category">{feed.category}</span>}{!feed.enabled && <span className="preset-category">默认未启用</span>}<small>{feed.url}</small>
+                      {feed.description && <p className="text-note">{feed.description}</p>}
+                      {!!feed.requires?.length && <p className="text-note">使用要求：{sourceRequirements(feed.requires)}</p>}
+                    </div>
+                    <button className="text-button" disabled={existing || !!busy} onClick={() => addPresets([feed])}>{existing ? "已添加" : "加入订阅"}</button>
+                  </div>;
+                })}
+              </div>
+              {!!presets?.rsshub_routes?.length && <details className="rsshub-route-notes"><summary>RSSHub 财经路由参考</summary><p className="text-note">需要自行运行实例并验证具体路由；本人首页与登录会话尚未验证。</p>
+                <ul>{presets.rsshub_routes.map((route, index) => <li key={route.id || index}>
+                  <strong>{route.name}</strong>
+                  {(route.path || route.route || route.url) && <code>{route.path || route.route || route.url}</code>}
+                  {route.description && <p>{route.description}</p>}
+                  <p>使用要求：{route.requires?.length ? sourceRequirements(route.requires) : "预设无额外配置要求"}</p>
+                </li>)}</ul>
+              </details>}
+            </div>
+          </section>
           <section className="connection-panel">
             <div className="connection-heading">
               <div>
                 <h2>订阅来源</h2>
-                <p>公开新闻、机构公告和博客，与账号信息流一起整理。</p>
+                <p>公开新闻、机构公告和博客。加入、启停或移除后，点击“保存来源”。</p>
               </div>
             </div>
             <div className="feed-settings-list">
@@ -2125,6 +2405,7 @@ function SettingsPage({
                     <input
                       type="checkbox"
                       checked={feed.enabled}
+                      disabled={!!busy}
                       onChange={(event) =>
                         updateDraft(
                           "rss_feeds",
@@ -2143,6 +2424,7 @@ function SettingsPage({
                   </label>
                   <button
                     className="icon-button"
+                    disabled={!!busy}
                     aria-label={`移除 ${feed.name}`}
                     onClick={() =>
                       updateDraft(
@@ -2184,6 +2466,10 @@ function SettingsPage({
                     const url = new URL(newFeedUrl);
                     if (!["https:", "http:"].includes(url.protocol))
                       throw new Error();
+                    if (draft.rss_feeds.some((feed) => (webUrl(feed.url) || feed.url) === url.href)) {
+                      tell("这个 RSS 地址已在列表中；请直接启用现有来源。");
+                      return;
+                    }
                     updateDraft("rss_feeds", [
                       ...draft.rss_feeds,
                       {
