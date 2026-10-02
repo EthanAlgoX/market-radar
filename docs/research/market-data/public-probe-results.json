@@ -1,0 +1,56 @@
+[
+  {
+    "source": "crypto_binance_1h",
+    "request_url": "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=120",
+    "captured_at": "2026-10-02T16:32:02.508906+00:00",
+    "authentication": "none",
+    "method": "GET",
+    "http_status": 200,
+    "rows": 120,
+    "duplicate_timestamps": 0,
+    "ohlc_violations": 0,
+    "nonfinite_or_negative_volume": 0,
+    "gap_count": 0,
+    "unclosed_rows": 1,
+    "oldest_bar": "2026-09-27T17:00:00+00:00",
+    "latest_bar": "2026-10-02T16:00:00+00:00",
+    "elapsed_seconds": 1.87
+  },
+  {
+    "source": "us_yahoo_daily",
+    "request_url": "https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=1mo&interval=1d&includePrePost=false&events=div%2Csplits",
+    "captured_at": "2026-10-02T16:32:04.383117+00:00",
+    "authentication": "none",
+    "method": "GET",
+    "http_status": 200,
+    "rows": 22,
+    "currency": "USD",
+    "exchange_timezone": "America/New_York",
+    "null_ohlcv_rows": 0,
+    "latest_bar": "2026-10-02T13:30:00+00:00",
+    "elapsed_seconds": 1.05
+  },
+  {
+    "source": "hk_yahoo_daily",
+    "request_url": "https://query1.finance.yahoo.com/v8/finance/chart/0700.HK?range=1mo&interval=1d&includePrePost=false&events=div%2Csplits",
+    "captured_at": "2026-10-02T16:32:05.436010+00:00",
+    "authentication": "none",
+    "method": "GET",
+    "http_status": 200,
+    "rows": 22,
+    "currency": "HKD",
+    "exchange_timezone": "Asia/Hong_Kong",
+    "null_ohlcv_rows": 1,
+    "latest_bar": "2026-10-02T01:30:00+00:00",
+    "elapsed_seconds": 1.05
+  },
+  {
+    "source": "cn_eastmoney_daily",
+    "request_url": "https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=1.600519&klt=101&fqt=0&beg=0&end=20500101&lmt=80&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61",
+    "captured_at": "2026-10-02T16:32:06.483680+00:00",
+    "authentication": "none",
+    "method": "GET",
+    "error": "RemoteDisconnected",
+    "elapsed_seconds": 4.78
+  }
+]

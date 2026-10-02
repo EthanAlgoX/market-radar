@@ -4,6 +4,8 @@
 
 当前版本 **0.2**：采集任务持久保存到 SQLite，支持本地进程重启后恢复；完善来源状态、RSS 增量请求、财经查询和按需阅读。变更与验证范围见 [0.2 升级说明](docs/UPGRADE_0_2.md)。
 
+下一阶段的行情、K 线与规则信号候选、源码分析和接入方案见 [市场数据研究](docs/MARKET_DATA_RESEARCH.md)。该方案尚未接入当前网站；[11 个行情参考快照](docs/MARKET_DATA_REFERENCE_SNAPSHOTS.json) 单独保存在开发 workspace 的 reference 目录。
+
 ## 启动
 
 环境：macOS/Linux、Node.js 22.12+、[uv](https://docs.astral.sh/uv/getting-started/installation/)。Python 3.12 由 uv 管理。
@@ -94,6 +96,8 @@ market-radar/
   docs/REFERENCE_SNAPSHOTS.json  13 个参考仓库的精确版本清单
   docs/SOURCE_RESEARCH.md  0.2 开发前的来源评估基线
   docs/UPGRADE_0_2.md    0.2 功能、迁移与验证范围
+  docs/MARKET_DATA_RESEARCH.md  行情、指标、回测和信号的下一阶段研究
+  docs/MARKET_DATA_REFERENCE_SNAPSHOTS.json  11 个行情参考快照
 ```
 
 实际运行依赖为 React / TypeScript / Vite 前端与 FastAPI / Uvicorn 后端；HTTPX、Feedparser 用于公开源，Twikit / PRAW 用于 X / Reddit，Playwright 用于隔离登录浏览器，Trafilatura 用于按需正文提取，Cryptography 用于本机会话加密。数据与任务保存在 SQLite，无需部署消息队列或参考平台。

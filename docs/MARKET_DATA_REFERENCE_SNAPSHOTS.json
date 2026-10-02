@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "review_date": "2026-10-03",
+  "timezone": "Asia/Shanghai",
+  "purpose": "Read-only market-data research reference checkouts; not application dependencies.",
+  "repositories": [
+    {
+      "name": "ccxt",
+      "repository": "https://github.com/ccxt/ccxt",
+      "directory": "/Users/hyx/Documents/workspace/reference/market-data/ccxt",
+      "status": "downloaded",
+      "commit": "70b73bff34cffd82757f858d857194174df954a4",
+      "branch": "master",
+      "commit_date": "2026-10-02T17:53:21+03:00",
+      "license_files": [
+        "LICENSE.txt"
+      ],
+      "clean": true,
+      "download_started_at_utc": "2026-10-02T16:27:50.197840+00:00",
+      "download_completed_at_shanghai": "2026-10-03T00:28:37.550062+08:00",
+      "download_completed_at_utc": "2026-10-02T16:28:37.550062+00:00",
+      "license_label": "MIT",
+      "license_note": "Public OHLCV coverage and data access depend on each exchange.",
+      "incorporated_into_runtime": false
+    },
+    {
+      "name": "akshare",
+      "repository": "https://github.com/akfamily/akshare",
+      "directory": "/Users/hyx/Documents/workspace/reference/market-data/akshare",
+      "status": "downloaded",
+      "commit": "fac1e50ebf9b907960d6aab4c3df658559689f39",
+      "branch": "main",
+      "commit_date": "2026-09-30T15:22:30+08:00",
+      "license_files": [
+        "LICENSE"
+      ],
+      "clean": true,
+      "download_started_at_utc": "2026-10-02T16:28:38.270987+00:00",
+      "download_completed_at_shanghai": "2026-10-03T00:28:44.180931+08:00",
+      "download_completed_at_utc": "2026-10-02T16:28:44.180931+00:00",
+      "license_label": "MIT",
+      "license_note": "Code license is separate from upstream data terms and availability.",
+      "incorporated_into_runtime": false
+    },
+    {
+      "name": "yfinance",
+      "repository": "https://github.com/ranaroussi/yfinance",
+      "directory": "/Users/hyx/Documents/workspace/reference/market-data/yfinance",
+      "status": "downloaded",
+      "commit": "5cae563642b59f49adf6a04a5ad6744f8b0e084d",
+      "branch": "main",
+      "commit_date": "2026-09-30T21:35:07+01:00",
+      "license_files": [
+        "LICENSE.txt"
+      ],
+      "clean": true,
+      "download_started_at_utc": "2026-10-02T16:28:44.398059+00:00",
+      "download_completed_at_shanghai": "2026-10-03T00:28:49.101814+08:00",
+      "download_completed_at_utc": "2026-10-02T16:28:49.101814+00:00",
+      "license_label": "Apache-2.0",
+      "license_note": "Yahoo data terms are separate; use of SDK does not grant redistribution rights.",
+      "incorporated_into_runtime": false
+    },
+    {
+      "name": "ta-lib-python",
+      "repository": "https://github.com/TA-Lib/ta-lib-python",
+      "directory": "/Users/hyx/Documents/workspace/reference/market-data/ta-lib-python",
+      "status": "downloaded",
+      "commit": "8f5cadcd83091ffbbfd30a117fdd92b87fa7fc2f",
+      "branch": "master",
+      "commit_date": "2026-09-21T09:24:26-07:00",
+      "license_files": [
+        "LICENSE",
+        "COPYRIGHT"
+      ],
+      "clean": true,
+      "download_started_at_utc": "2026-10-02T16:28:49.257907+00:00",
+      "download_completed_at_shanghai": "2026-10-03T00:28:53.961885+08:00",
+      "download_completed_at_utc": "2026-10-02T16:28:53.961885+00:00",
+      "license_label": "BSD-2-Clause",
+      "license_note": "Underlying TA-Lib C library has BSD-3-Clause terms.",
+      "incorporated_into_runtime": false
+    },
+    {
+      "name": "backtesting.py",
+      "repository": "https://github.com/kernc/backtesting.py",
+      "directory": "/Users/hyx/Documents/workspace/reference/market-data/backtesting.py",
+      "status": "downloaded",
+      "commit": "ca2e2611621e472542ba90f7243a1fa06a7d7108",
+      "branch": "master",
+      "commit_date": "2026-08-05T14:39:16+02:00",
+      "license_files": [
+        "LICENSE.md"
+      ],
+      "clean": true,
+      "download_started_at_utc": "2026-10-02T16:28:54.128401+00:00",
+      "download_completed_at_shanghai": "2026-10-03T00:28:58.665683+08:00",
+      "download_completed_at_utc": "2026-10-02T16:28:58.665683+00:00",
+      "license_label": "AGPL-3.0",
+      "license_note": "Research candidate; integration/distribution terms require component review.",
+      "incorporated_into_runtime": false
+    },
+    {
+      "name": "lightweight-charts",
+      "repository": "https://github.com/tradingview/lightweight-charts",
+      "directory": "/Users/hyx/Documents/workspace/reference/market-data/lightweight-charts",
+      "status": "downloaded",
+      "commit": "6777212d1d62eb4611fb2b98ef06062ddf9a9ef3",
+      "branch": "master",
+      "commit_date": "2026-10-02T16:05:15+01:00",
+      "license_files": [
+        "LICENSE"
+      ],
+      "clean": true,
+      "download_started_at_utc": "2026-10-02T16:28:58.823291+00:00",
+      "download_completed_at_shanghai": "2026-10-03T00:29:05.658137+08:00",
+      "download_completed_at_utc": "2026-10-02T16:29:05.658137+00:00",
+      "license_label": "Apache-2.0",
+      "license_note": "Retain NOTICE and required TradingView attribution/link when integrated.",
+      "incorporated_into_runtime": false
+    },
+    {
+      "name": "daily-stock-analysis",
+      "repository": "https://github.com/ZhuLinsen/daily_stock_analysis",
+      "directory": "/Users/hyx/Documents/workspace/reference/market-data/daily-stock-analysis",
+      "status": "downloaded",
+      "commit": "be148f39ce3be8bc7f9c2d5b0ad77cd31655e78f",
+      "branch": "main",
+      "commit_date": "2026-10-01T15:32:09+08:00",
+      "license_files": [
+        "LICENSE"
+      ],
+      "clean": true,
+      "download_started_at_utc": "2026-10-02T16:29:05.888205+00:00",
+      "download_completed_at_shanghai": "2026-10-03T00:29:16.974129+08:00",
+      "download_completed_at_utc": "2026-10-02T16:29:16.974129+00:00",
+      "license_label": "MIT",
+      "license_note": "src/services/screening has separate Apache-2.0 terms and third-party notices.",
+      "incorporated_into_runtime": false
+    },
+    {
+      "name": "freqtrade",
+      "repository": "https://github.com/freqtrade/freqtrade",
+      "directory": "/Users/hyx/Documents/workspace/reference/market-data/freqtrade",
+      "status": "downloaded",
+      "commit": "f2ec745c785e1270bbf95076ffa64aa8f9667e0c",
+      "branch": "develop",
+      "commit_date": "2026-10-02T18:13:00+02:00",
+      "license_files": [
+        "LICENSE"
+      ],
+      "clean": true,
+      "download_started_at_utc": "2026-10-02T16:29:17.461530+00:00",
+      "download_completed_at_shanghai": "2026-10-03T00:29:41.479327+08:00",
+      "download_completed_at_utc": "2026-10-02T16:29:41.479327+00:00",
+      "license_label": "GPL-3.0",
+      "license_note": "Offline research/reference; no bot code incorporated into Market Radar.",
+      "incorporated_into_runtime": false
+    },
+    {
+      "name": "vectorbt",
+      "repository": "https://github.com/polakowo/vectorbt",
+      "directory": "/Users/hyx/Documents/workspace/reference/market-data/vectorbt",
+      "status": "downloaded",
+      "commit": "ceffc501f2d37033a79dd86a9f883e69ec6977bd",
+      "branch": "master",
+      "commit_date": "2026-09-26T13:24:03+02:00",
+      "license_files": [
+        "LICENSE.md"
+      ],
+      "clean": true,
+      "download_started_at_utc": "2026-10-02T16:29:41.932310+00:00",
+      "download_completed_at_shanghai": "2026-10-03T00:29:56.206197+08:00",
+      "download_completed_at_utc": "2026-10-02T16:29:56.206197+00:00",
+      "license_label": "Apache-2.0 with Commons Clause",
+      "license_note": "Source-available with selling restrictions; PRO is separate.",
+      "incorporated_into_runtime": false
+    },
+    {
+      "name": "quantdinger",
+      "repository": "https://github.com/OpenByteInc/QuantDinger",
+      "directory": "/Users/hyx/Documents/workspace/reference/market-data/quantdinger",
+      "status": "downloaded",
+      "commit": "a5a9f4c79a263113504e882531585a9f2d3b24f9",
+      "branch": "main",
+      "commit_date": "2026-10-02T01:52:04+08:00",
+      "license_files": [
+        "LICENSE"
+      ],
+      "clean": true,
+      "download_started_at_utc": "2026-10-02T16:29:56.743968+00:00",
+      "download_completed_at_shanghai": "2026-10-03T00:30:04.169071+08:00",
+      "download_completed_at_utc": "2026-10-02T16:30:04.169071+00:00",
+      "license_label": "Apache-2.0 (backend repository)",
+      "license_note": "Frontend is a separate source-available repository with independent conditions.",
+      "incorporated_into_runtime": false
+    },
+    {
+      "name": "futu-api",
+      "repository": "https://github.com/FutunnOpen/py-futu-api",
+      "directory": "/Users/hyx/Documents/workspace/reference/market-data/futu-api",
+      "status": "downloaded",
+      "commit": "cb11588a62fb3f9d57e699835356c47f42aed43b",
+      "branch": "master",
+      "commit_date": "2026-04-01T16:32:13+08:00",
+      "license_files": [
+        "LICENSE"
+      ],
+      "clean": true,
+      "download_started_at_utc": "2026-10-02T16:30:04.351538+00:00",
+      "download_completed_at_shanghai": "2026-10-03T00:30:08.639773+08:00",
+      "download_completed_at_utc": "2026-10-02T16:30:08.639773+00:00",
+      "license_label": "Apache-2.0",
+      "license_note": "OpenD login and market-data entitlements are separate from the SDK license.",
+      "incorporated_into_runtime": false
+    }
+  ]
+}
