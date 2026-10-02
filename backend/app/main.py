@@ -8,6 +8,7 @@ import hashlib
 import random
 import json
 import os
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -28,7 +29,7 @@ from .connectors.reddit import RedditConnector
 from .connectors.x import XConnector
 from .security import SecretStore, fetch_url, safe_error
 from .store import ItemVersionConflict, Store, now_iso
-from .translation import TranslationManager
+from .translation import TranslationConfig, TranslationManager, normalize_api_base_url
 from .market.service import MarketService
 from .market.router import create_market_router
 
@@ -133,12 +134,45 @@ class TranslateRequest(BaseModel):
     target_language: Literal["zh"] = "zh"
 
 
+class TranslationConfigUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    base_url: str | None = Field(default=None, min_length=1, max_length=2000, strict=True)
+    model: str | None = Field(default=None, min_length=1, max_length=120, strict=True)
+    api_key: str | None = Field(default=None, max_length=5000, strict=True)
+
+    @field_validator("base_url")
+    @classmethod
+    def valid_base_url(cls, value):
+        return normalize_api_base_url(value) if value is not None else None
+
+    @field_validator("model")
+    @classmethod
+    def valid_model(cls, value):
+        if value is not None:
+            value = value.strip()
+            if not re.fullmatch(r"[A-Za-z0-9._:/-]{1,120}", value):
+                raise ValueError("Model must contain 1–120 letters, numbers, dots, underscores, colons, slashes or hyphens.")
+        return value
+
+    @field_validator("api_key")
+    @classmethod
+    def valid_key(cls, value):
+        if value is not None:
+            if any(ord(char) < 32 or ord(char) == 127 for char in value):
+                raise ValueError("API key must not contain control characters.")
+            return value.strip()
+        return value
+
+
 class Service:
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
         self.secrets = SecretStore(data_dir)
         self.store = Store(data_dir / "market-radar.sqlite3")
-        self.translation = TranslationManager(self.store)
+        self.environment_translation_config = TranslationConfig.from_environment()
+        saved_translation = self.secrets.get("translation_config")
+        self.translation_source = "local" if saved_translation else "environment" if self.environment_translation_config.api_key else "none"
+        self.translation = TranslationManager(self.store, TranslationConfig(**saved_translation) if saved_translation else self.environment_translation_config)
         self.x = XConnector(self.secrets, data_dir, store=self.store)
         self.reddit = RedditConnector(self.secrets, store=self.store)
         self.public = PublicConnector(self.store)
@@ -167,6 +201,48 @@ class Service:
         settings = self.store.settings()
         settings["llm"]["api_key"] = {"configured": bool(self.secrets.get("llm_api_key"))}
         return settings
+
+    def translation_config_status(self):
+        config = self.translation.config
+        return {
+            **config.status(),
+            "source": self.translation_source,
+            "base_url": normalize_api_base_url(config.base_url) if config.valid_base_url else "https://api.deepseek.com",
+            "api_key_set": bool(config.api_key),
+            "local_api_key_set": self.translation_source == "local" and bool(config.api_key),
+            "environment_available": self.environment_translation_config.configured,
+            "security_note": "API keys are encrypted on this machine and never returned by this API. Source content is sent to the configured LLM provider for translation.",
+        }
+
+    def configure_translation(self, changes: dict):
+        with self.secrets.lock:
+            previous = self.secrets.get("translation_config")
+            current = TranslationConfig(**previous) if previous else self.environment_translation_config
+            base_url = changes.get("base_url", current.base_url)
+            model = changes.get("model", current.model)
+            if previous and not changes.get("api_key") and normalize_api_base_url(base_url) != normalize_api_base_url(current.base_url):
+                raise HTTPException(400, {"error_code": "translation_api_key_required", "message": "Enter the provider's API key when changing the translation API base URL."})
+            key = changes.get("api_key") or (current.api_key if previous else "")
+            if not key and self.environment_translation_config.configured:
+                environment_base = normalize_api_base_url(self.environment_translation_config.base_url)
+                if normalize_api_base_url(base_url) == environment_base:
+                    key = self.environment_translation_config.api_key
+            if not key:
+                raise HTTPException(400, {"error_code": "translation_api_key_required", "message": "Enter an API key to save your translation configuration. Changing the provider URL requires an explicit API key."})
+            config = TranslationConfig(api_key=key, base_url=base_url, model=model)
+            if not config.valid_base_url or not config.valid_model:
+                raise HTTPException(400, {"error_code": "translation_invalid_config", "message": "Configure a valid API base URL and model before saving."})
+            self.secrets.set("translation_config", {"api_key": config.api_key, "base_url": config.base_url, "model": config.model})
+            self.translation.update_config(config)
+            self.translation_source = "local"
+        return self.translation_config_status()
+
+    def clear_translation_config(self):
+        with self.secrets.lock:
+            self.secrets.delete("translation_config")
+            self.translation.update_config(self.environment_translation_config)
+            self.translation_source = "environment" if self.environment_translation_config.api_key else "none"
+        return self.translation_config_status()
 
     def commit_settings(self, settings: dict, key_update=None):
         """Commit only a fully validated request, compensating credentials on write failure."""
@@ -441,7 +517,7 @@ def create_app(data_dir: Path | None = None):
             if hasattr(service.x, "shutdown"):
                 await service.x.shutdown()
 
-    application = FastAPI(title="Market Radar", version="0.3.0", lifespan=lifespan)
+    application = FastAPI(title="Market Radar", version="0.4.0", lifespan=lifespan)
     application.include_router(create_market_router(lambda request: request.app.state.service.market))
     application.add_middleware(CORSMiddleware, allow_origins=sorted(ALLOWED_ORIGINS), allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Content-Type"], allow_credentials=False)
 
@@ -481,7 +557,7 @@ def create_app(data_dir: Path | None = None):
     async def health(request: Request):
         with svc(request).store.connect() as db:
             db.execute("SELECT 1").fetchone()
-        return {"status": "ok", "version": "0.3.0"}
+        return {"status": "ok", "version": "0.4.0"}
 
     @application.get("/api/overview")
     async def overview(request: Request):
@@ -495,11 +571,31 @@ def create_app(data_dir: Path | None = None):
     async def translation_status(request: Request):
         return svc(request).translation.status()
 
+    @application.get("/api/translation/config")
+    async def translation_config(request: Request):
+        return svc(request).translation_config_status()
+
+    @application.patch("/api/translation/config")
+    async def save_translation_config(payload: TranslationConfigUpdate, request: Request):
+        try:
+            return svc(request).configure_translation(payload.model_dump(exclude_none=True))
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(500, {"error_code": "translation_config_save_failed", "message": "Translation configuration could not be saved. Try again."}) from None
+
+    @application.delete("/api/translation/config")
+    async def clear_translation_config(request: Request):
+        try:
+            return svc(request).clear_translation_config()
+        except Exception:
+            raise HTTPException(500, {"error_code": "translation_config_clear_failed", "message": "Local translation configuration could not be removed. Try again."}) from None
+
     @application.post("/api/translate", status_code=202)
     async def translate(payload: TranslateRequest, request: Request):
         service = svc(request)
         job = service.translation.new_job(payload.ids)
-        service.spawn(service.translation.run_job(job, payload.ids))
+        service.spawn(service.translation.run_job(job, payload.ids, config=service.translation.config))
         return job
 
     @application.get("/api/translation/jobs/{identity}")

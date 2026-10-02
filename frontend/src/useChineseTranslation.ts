@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { api, json } from "./api";
+import { api, json } from "./api.ts";
 import type { Post, TranslationJob, TranslationStatus } from "./types";
+import { getLocale } from "./i18n.ts";
 
 export function translatedPost(
   item: Post,
@@ -20,7 +21,7 @@ export function translationReady(item: Post, model: string) {
   return (
     !!item.translation &&
     item.translation.language === "zh" &&
-    item.translation.model === model
+    (item.translation.cache_key || item.translation.model) === model
   );
 }
 
@@ -38,7 +39,7 @@ export function useChineseTranslation(
   apply: (items: Post[]) => void,
 ) {
   const [chinese, setChinese] = useState(
-    () => localStorage.getItem("radar-reading-language") === "zh",
+    () => getLocale() === "zh" && localStorage.getItem("radar-reading-language") !== "original",
   );
   const [configuration, setConfiguration] = useState<TranslationStatus | null>(
     null,
@@ -64,6 +65,14 @@ export function useChineseTranslation(
   useEffect(() => {
     localStorage.setItem("radar-reading-language", chinese ? "zh" : "original");
   }, [chinese]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void api<TranslationStatus>("/translation/status", { signal: controller.signal })
+      .then(result => { if (!controller.signal.aborted) setConfiguration(result); })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     const current = ++generation.current;
@@ -98,11 +107,11 @@ export function useChineseTranslation(
           }
           const blocked: Record<string, string> = {};
           const pending = snapshot.current.filter((item) => {
-            if (translationReady(item, config.model)) return false;
+            if (translationReady(item, config.cache_key || config.model)) return false;
             const failure = failedVersions.current.get(item.id);
             if (
               failure?.revision === version(item) &&
-              failure.model === config.model
+              failure.model === (config.cache_key || config.model)
             ) {
               blocked[item.id] = failure.message;
               return false;
@@ -111,7 +120,7 @@ export function useChineseTranslation(
           });
           setFailures(blocked);
           let successful = snapshot.current.filter((item) =>
-            translationReady(item, config.model),
+            translationReady(item, config.cache_key || config.model),
           ).length;
           setCompleted(successful);
           for (
@@ -148,7 +157,7 @@ export function useChineseTranslation(
                 if (original)
                   failedVersions.current.set(error.id, {
                     revision: version(original),
-                    model: config.model,
+                    model: config.cache_key || config.model,
                     message: error.message,
                   });
                 else setIssue(error.message);
@@ -186,19 +195,27 @@ export function useChineseTranslation(
     };
   }, [chinese, revision, retry, apply]);
 
-  const model = configuration?.model || "deepseek-flash";
+  const model = configuration?.cache_key || configuration?.model || "deepseek-flash";
   return {
     chinese,
+    setChinese,
+    configuration,
     toggle: () => setChinese((value) => !value),
     running,
     completed,
-    issue,
+    issue: issue || (chinese && configuration?.configured === false ? configuration.message : ""),
     failures,
     model,
     ready: items.filter((item) => translationReady(item, model)).length,
     retry: () => {
       failedVersions.current.clear();
       setRetry((value) => value + 1);
+    },
+    configurationChanged: async () => {
+      const result = await api<TranslationStatus>("/translation/status");
+      setConfiguration(result);
+      failedVersions.current.clear();
+      setRetry(value => value + 1);
     },
   };
 }

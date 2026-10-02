@@ -1,3 +1,5 @@
+import { localeCode, localizeMessage, t, useLocale } from "./i18n";
+import TranslationSettings from "./TranslationSettings";
 import {
   useCallback,
   useEffect,
@@ -78,7 +80,7 @@ const TOPICS: { id: string; name: string; icon: LucideIcon; query: string }[] =
       id: "all",
       name: "全部资讯",
       icon: Layers3,
-      query: "金融市场 OR 加密货币 OR 美股 OR 黄金",
+      query: "financial markets OR cryptocurrency OR US stocks OR gold",
     },
     {
       id: "macro",
@@ -146,7 +148,7 @@ const splitList = (s: string) => [
   ),
 ];
 const errorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "暂时无法完成，请重试。";
+  error instanceof Error ? localizeMessage(error.message) : localizeMessage("暂时无法完成，请重试。");
 const activeJob = (status?: string) => status === "queued" || status === "running";
 const webUrl = (value?: string | null) => {
   if (!value) return undefined;
@@ -159,18 +161,18 @@ const webUrl = (value?: string | null) => {
 };
 const jobOutcome = (job: Job) =>
   job.status === "failed"
-    ? "本次采集失败，已取得的内容仍保留。请查看来源说明。"
+    ? localizeMessage("本次采集失败，已取得的内容仍保留。请查看来源说明。")
     : job.status === "partial"
-      ? `部分采集完成，新增 ${job.added ?? 0} 条；请查看未完成来源。`
-      : `采集完成，新增 ${job.added ?? 0} 条信息。`;
+      ? t(`部分采集完成，新增 ${job.added ?? 0} 条；请查看未完成来源。`, `Partly collected: ${job.added ?? 0} new items. Check unfinished sources.`)
+      : t(`采集完成，新增 ${job.added ?? 0} 条信息。`, `Collection complete: ${job.added ?? 0} new items.`);
 
 function sourceRequirements(requirements: string[]) {
   const labels: Record<string, string> = {
-    browser_runtime: "RSSHub 实例需能运行浏览器",
-    XUEQIU_COOKIES: "在实例中配置本人的雪球登录 Cookie",
-    isolated_personal_instance: "使用仅本人访问的独立 RSSHub 实例",
-    declared_contact_user_agent: "请求中需声明可联系的身份信息",
-    access_validation: "启用前需验证访问是否可用",
+    browser_runtime: localizeMessage("RSSHub 实例需能运行浏览器"),
+    XUEQIU_COOKIES: localizeMessage("在实例中配置本人的雪球登录 Cookie"),
+    isolated_personal_instance: localizeMessage("使用仅本人访问的独立 RSSHub 实例"),
+    declared_contact_user_agent: localizeMessage("请求中需声明可联系的身份信息"),
+    access_validation: localizeMessage("启用前需验证访问是否可用"),
   };
   return requirements.map((requirement) => labels[requirement] || requirement).join("；");
 }
@@ -192,20 +194,20 @@ function previewText(item: Post) {
 }
 
 function timeLabel(value: string | null, full = false) {
-  if (!value) return "时间未知";
+  if (!value) return localizeMessage("时间未知");
   const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "时间未知";
+  if (!Number.isFinite(date.getTime())) return localizeMessage("时间未知");
   if (full)
-    return date.toLocaleString("zh-CN", {
+    return date.toLocaleString(localeCode(), {
       timeZone: "Asia/Shanghai",
       hour12: false,
     });
   const minutes = Math.floor((Date.now() - date.getTime()) / 60_000);
-  if (minutes >= 0 && minutes < 1) return "刚刚";
-  if (minutes >= 1 && minutes < 60) return `${minutes} 分钟前`;
+  if (minutes >= 0 && minutes < 1) return localizeMessage("刚刚");
+  if (minutes >= 1 && minutes < 60) return t(`${minutes} 分钟前`, `${minutes} min ago`);
   if (minutes >= 60 && minutes < 1440)
-    return `${Math.floor(minutes / 60)} 小时前`;
-  return date.toLocaleDateString("zh-CN", {
+    return t(`${Math.floor(minutes / 60)} 小时前`, `${Math.floor(minutes / 60)}h ago`);
+  return date.toLocaleDateString(localeCode(), {
     timeZone: "Asia/Shanghai",
     month: "short",
     day: "numeric",
@@ -229,10 +231,9 @@ function SourceMark({ source }: { source: string }) {
 }
 
 export default function App() {
+  const { locale, setLocale } = useLocale();
   const [page, setPage] = useState<"feed" | "market" | "settings">("feed");
-  const [settingsTab, setSettingsTab] = useState<
-    "accounts" | "preferences" | "feeds"
-  >("accounts");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("accounts");
   const [topic, setTopic] = useState("all");
   const [view, setView] = useState<View>("search");
   const [query, setQuery] = useState(TOPICS[0].query);
@@ -272,6 +273,14 @@ export default function App() {
     setSelected((previous) => (previous ? merge(previous) : previous));
   }, []);
   const chinese = useChineseTranslation(page === "market" ? marketRelated : items, applyTranslations);
+  const translationUnconfigured = chinese.chinese && chinese.configuration?.configured === false;
+  const openTranslationSettings = () => {
+    setPage("settings"); setSettingsTab("translation"); setSelected(null); setMobileMenu(false);
+  };
+  useEffect(() => {
+    document.documentElement.lang = localeCode();
+    document.title = t("交易雷达 · Market Radar", "Market Radar · Trading research");
+  }, [locale]);
   const receiveMarketNews = useCallback((posts: Post[]) => {
     setMarketRelated((previous) => posts.map((post) => {
       const cached = previous.find((item) => sameOriginal(item, post));
@@ -359,10 +368,10 @@ export default function App() {
       setPage("settings");
       tell(
         params.get("status") === "connected"
-          ? "Reddit 已授权，可以拉取关注内容。"
+          ? localizeMessage("Reddit 已授权，可以拉取关注内容。")
           : params.get("status") === "cancelled"
-            ? "Reddit 授权已取消。"
-            : "Reddit 授权未完成，请检查应用信息后重试。",
+            ? localizeMessage("Reddit 授权已取消。")
+            : localizeMessage("Reddit 授权未完成，请检查应用信息后重试。"),
       );
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -385,7 +394,7 @@ export default function App() {
         .then((result) => {
           if (pendingAuth && result.reddit?.state === "connected") {
             setPendingAuth(false);
-            tell("Reddit 连接成功。");
+            tell(localizeMessage("Reddit 连接成功。"));
           }
         })
         .catch(() => {});
@@ -442,7 +451,7 @@ export default function App() {
       ? ["rss"]
       : [];
     if (channel === "search" && !text.trim()) {
-      tell("请输入要搜集的关键词。");
+      tell(localizeMessage("请输入要搜集的关键词。"));
       return;
     }
     if (
@@ -450,7 +459,7 @@ export default function App() {
     ) {
       setPage("settings");
       setSettingsTab("accounts");
-      tell("先连接 X 或 Reddit，再拉取账号推荐流。RSSHub 地址尚不能证明本人首页可用。");
+      tell(localizeMessage("先连接 X 或 Reddit，再拉取账号推荐流。RSSHub 地址尚不能证明本人首页可用。"));
       return;
     }
     const sources = source !== "all"
@@ -462,11 +471,11 @@ export default function App() {
           : personalSources;
     if (channel === "following" && !sources.some((s) =>
       s === "rss" ? rssSources.length > 0 : personalSources.includes(s))) {
-      tell("我的关注需要已连接账号或已启用的 RSS 订阅。可在来源设置中添加订阅。");
+      tell(localizeMessage("我的关注需要已连接账号或已启用的 RSS 订阅。可在来源设置中添加订阅。"));
       return;
     }
     if (channel === "recommended" && sources.some((s) => !personalSources.includes(s))) {
-      tell("账号推荐流仅支持已连接的 X 或 Reddit，请调整来源选择。");
+      tell(localizeMessage("账号推荐流仅支持已连接的 X 或 Reddit，请调整来源选择。"));
       return;
     }
     setStarting(true);
@@ -536,7 +545,7 @@ export default function App() {
     overview?.sources.filter((s) =>
       ["available", "connected"].includes(s.status),
     ).length || 0;
-  const dateText = new Date().toLocaleDateString("zh-CN", {
+  const dateText = new Date().toLocaleDateString(localeCode(), {
     timeZone: "Asia/Shanghai",
     month: "long",
     day: "numeric",
@@ -548,7 +557,7 @@ export default function App() {
       {mobileMenu && (
         <button
           className="nav-backdrop"
-          aria-label="关闭导航"
+          aria-label={localizeMessage("关闭导航")}
           onClick={() => setMobileMenu(false)}
         />
       )}
@@ -565,15 +574,14 @@ export default function App() {
             <Radar size={23} strokeWidth={1.8} />
           </span>
           <span>
-            <strong>交易雷达</strong>
-            <small>Market Radar</small>
+            <strong>{localizeMessage("交易雷达")}</strong>
+            <small>{t("Market Radar", "Trading research")}</small>
           </span>
         </a>
         <div className="workspace-label">
-          <span className="local-indicator" />
-          个人工作区<span className="local-label">本地</span>
+          <span className="local-indicator" />{localizeMessage("个人工作区")}<span className="local-label">{localizeMessage("本地")}</span>
         </div>
-        <nav className="topic-nav" aria-label="行情工作台">
+        <nav className="topic-nav" aria-label={localizeMessage("行情工作台")}>
           <button
             className={`nav-item ${page === "market" ? "active" : ""}`}
             aria-current={page === "market" ? "page" : undefined}
@@ -584,11 +592,11 @@ export default function App() {
             }}
           >
             <Activity size={18} strokeWidth={1.7} />
-            <span>行情与信号</span>
+            <span>{localizeMessage("行情与信号")}</span>
           </button>
         </nav>
-        <div className="nav-caption">交易主题</div>
-        <nav className="topic-nav" aria-label="交易主题">
+        <div className="nav-caption">{localizeMessage("交易主题")}</div>
+        <nav className="topic-nav" aria-label={localizeMessage("交易主题")}>
           {TOPICS.map((t) => {
             const Icon = t.icon;
             const count =
@@ -602,7 +610,7 @@ export default function App() {
                 onClick={() => pickTopic(t.id)}
               >
                 <Icon size={18} strokeWidth={1.7} />
-                <span>{t.name}</span>
+                <span>{localizeMessage(t.name)}</span>
                 {count !== undefined && count > 0 && (
                   <span className="nav-count">{count}</span>
                 )}
@@ -610,12 +618,10 @@ export default function App() {
             );
           })}
         </nav>
-        <div className="nav-caption nav-caption-spaced">
-          我的关键词
-          <button
+        <div className="nav-caption nav-caption-spaced">{localizeMessage("我的关键词")}<button
             className="icon-button small"
-            title="编辑关键词"
-            aria-label="编辑关键词"
+            title={localizeMessage("编辑关键词")}
+            aria-label={localizeMessage("编辑关键词")}
             onClick={() => {
               setPage("settings");
               setSettingsTab("preferences");
@@ -662,13 +668,13 @@ export default function App() {
             }}
           >
             <Plug size={18} />
-            <span>来源与账号</span>
+            <span>{localizeMessage("来源与账号")}</span>
           </button>
           <div className="local-footer">
-            <span>数据保存在这台电脑</span>
+            <span>{localizeMessage("数据保存在这台电脑")}</span>
             <button
               className="icon-button small"
-              aria-label={theme === "light" ? "切换深色模式" : "切换浅色模式"}
+              aria-label={theme === "light" ? localizeMessage("切换深色模式") : localizeMessage("切换浅色模式")}
               onClick={() => setTheme(theme === "light" ? "dark" : "light")}
             >
               {theme === "light" ? <Moon size={15} /> : <Sun size={15} />}
@@ -682,22 +688,33 @@ export default function App() {
           <div className="topbar-start">
             <button
               className="icon-button mobile-nav-toggle"
-              aria-label="打开导航"
+              aria-label={localizeMessage("打开导航")}
               onClick={() => setMobileMenu(true)}
             >
               <Menu size={21} />
             </button>
-            <span>{page === "feed" ? "资讯工作台" : page === "market" ? "行情与信号" : "工作区设置"}</span>
+            <span>{page === "feed" ? localizeMessage("资讯工作台") : page === "market" ? localizeMessage("行情与信号") : localizeMessage("工作区设置")}</span>
           </div>
           <div className="topbar-end">
+            <button
+              className="language-button interface-language-button"
+              onClick={() => {
+                const next = locale === "en" ? "zh" : "en";
+                setLocale(next); chinese.setChinese(next === "zh");
+              }}
+              aria-label={locale === "en" ? "Switch to Chinese" : "Switch to English"}
+              title={t("切换界面语言，并启用对应阅读模式", "Switch interface language and reading mode")}
+            >
+              <Globe2 size={16} />{locale === "en" ? "中文" : "English"}
+            </button>
             <button
               className={`language-button ${chinese.chinese ? "active" : ""}`}
               aria-pressed={chinese.chinese}
               onClick={chinese.toggle}
-              title="使用 DeepSeek Flash 翻译资讯，原始内容会保留"
+              title={t("使用你配置的 LLM API 翻译资讯，原文会保留", "Translate posts with your configured LLM API; original text is retained")}
             >
               <Languages size={16} />
-              {chinese.chinese ? "切回原文" : "一键切换中文"}
+              {chinese.chinese ? t("资讯原文", "Original posts") : t("翻译资讯", "Translate posts")}
             </button>
             <time>{dateText}</time>
             <span className="topbar-divider" />
@@ -706,14 +723,20 @@ export default function App() {
                 className={`status-dot ${availableSources > 0 ? "success" : ""}`}
               />
               {availableSources > 0
-                ? `${page === "market" ? "资讯：" : ""}${availableSources} 个可用来源`
-                : page === "market" ? "检查资讯来源连接" : "检查来源连接"}
+                ? t(`${page === "market" ? "资讯：" : ""}${availableSources} 个可用来源`, `${page === "market" ? "News: " : ""}${availableSources} sources available`)
+                : page === "market" ? localizeMessage("检查资讯来源连接") : localizeMessage("检查来源连接")}
             </span>
           </div>
         </header>
 
+        {translationUnconfigured && <div className="translation-setup-banner" role="alert">
+          <Languages size={17} />
+          <span>{t("资讯的中文翻译需要配置你自己的 LLM API，当前保留原文。", "Configure your own LLM API to translate posts into Chinese. Original text is retained.")}</span>
+          <button className="secondary-button" onClick={openTranslationSettings}>{t("配置 API", "Configure API")}</button>
+        </div>}
+
         {page === "market" ? (
-          <Suspense fallback={<div className="search-section" role="status">正在打开行情工作台…</div>}>
+          <Suspense fallback={<div className="search-section" role="status">{localizeMessage("正在打开行情工作台…")}</div>}>
             <MarketWorkspace
               chinese={chinese.chinese}
               translationModel={chinese.model}
@@ -730,7 +753,7 @@ export default function App() {
                 setFilter("");
                 setQuery(keyword);
                 setSelected(null);
-                tell("已填入相关标的。点击「跨源搜索」获取新的资讯。");
+                tell(localizeMessage("已填入相关标的。点击「跨源搜索」获取新的资讯。"));
               }}
             />
           </Suspense>
@@ -740,9 +763,9 @@ export default function App() {
               <div className="page-heading">
                 <div>
                   <div className="page-kicker">
-                    {currentTopic.id === "all" ? "跨源信息流" : "主题信息流"}
+                    {currentTopic.id === "all" ? localizeMessage("跨源信息流") : localizeMessage("主题信息流")}
                   </div>
-                  <h1>{currentTopic.name}</h1>
+                  <h1>{localizeMessage(currentTopic.name)}</h1>
                 </div>
                 <div className="heading-actions">
                   <button
@@ -755,12 +778,10 @@ export default function App() {
                       )
                     }
                   >
-                    <ArrowDownToLine size={16} />
-                    导出
-                  </button>
+                    <ArrowDownToLine size={16} />{localizeMessage("导出")}</button>
                   <button
                     className="icon-button"
-                    aria-label="打开来源设置"
+                    aria-label={localizeMessage("打开来源设置")}
                     onClick={() => {
                       setPage("settings");
                       setSettingsTab("accounts");
@@ -779,10 +800,10 @@ export default function App() {
               >
                 <Search className="search-leading" size={20} />
                 <input
-                  aria-label="搜索关键词"
+                  aria-label={localizeMessage("搜索关键词")}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="输入关键词，如：美联储、Bitcoin、黄金…"
+                  placeholder={localizeMessage("输入关键词，如：美联储、Bitcoin、黄金…")}
                   maxLength={500}
                 />
                 <button
@@ -795,10 +816,10 @@ export default function App() {
                   ) : (
                     <Search size={17} />
                   )}
-                  {busy ? "正在采集" : "跨源搜索"}
+                  {busy ? localizeMessage("正在采集") : localizeMessage("跨源搜索")}
                 </button>
               </form>
-              {chinese.chinese && (
+              {chinese.chinese && !translationUnconfigured && (
                 <div
                   className={`translation-notice ${chinese.issue || Object.keys(chinese.failures).length ? "has-error" : ""}`}
                   role="status"
@@ -809,28 +830,26 @@ export default function App() {
                     <Languages size={14} />
                   )}
                   <span>
-                    {chinese.issue ||
+                    {localizeMessage(chinese.issue) ||
                       (chinese.running
-                        ? `DeepSeek Flash 正在翻译 · ${chinese.completed}/${items.length}`
-                        : `中文阅读 · ${chinese.ready}/${items.length} 条已就绪`)}
+                        ? t(`正在使用 LLM 翻译 · ${chinese.completed}/${items.length}`, `Translating · ${chinese.completed}/${items.length}`)
+                        : t(`中文阅读 · ${chinese.ready}/${items.length} 条已就绪`, `Chinese reading · ${chinese.ready}/${items.length} ready`))}
                     {Object.keys(chinese.failures).length > 0 &&
-                      ` · ${Object.keys(chinese.failures).length} 条翻译失败，已保留原文`}
+                      t(` · ${Object.keys(chinese.failures).length} 条翻译失败，已保留原文`, ` · ${Object.keys(chinese.failures).length} failed; originals retained`)}
                   </span>
                   {!chinese.running &&
                     (chinese.issue ||
                       Object.keys(chinese.failures).length > 0) && (
-                      <button className="text-button" onClick={chinese.retry}>
-                        重试翻译
-                      </button>
+                      <button className="text-button" onClick={chinese.retry}>{localizeMessage("重试翻译")}</button>
                     )}
                 </div>
               )}
               <div className="search-hint">
                 {view === "following"
-                  ? "关注内容独立收录，不受关键词筛选影响。"
+                  ? localizeMessage("关注内容独立收录，不受关键词筛选影响。")
                   : view === "recommended"
-                    ? "整理已连接账号的推荐信息，并保留每条内容的来源。"
-                    : "搜索会从可用来源获取新内容，收录后可继续筛选、整理和收藏。"}
+                    ? localizeMessage("整理已连接账号的推荐信息，并保留每条内容的来源。")
+                    : localizeMessage("搜索会从可用来源获取新内容，收录后可继续筛选、整理和收藏。")}
               </div>
             </section>
 
@@ -838,7 +857,7 @@ export default function App() {
               <div
                 className="channel-tabs"
                 role="tablist"
-                aria-label="信息类型"
+                aria-label={localizeMessage("信息类型")}
               >
                 {CHANNELS.map((c) => {
                   const Icon = c.icon;
@@ -856,7 +875,7 @@ export default function App() {
                       }}
                     >
                       <Icon size={16} />
-                      {c.label}
+                      {localizeMessage(c.label)}
                       {count !== undefined && count > 0 && <span>{count}</span>}
                     </button>
                   );
@@ -869,10 +888,10 @@ export default function App() {
               >
                 <RefreshCw size={15} className={busy ? "spin" : ""} />
                 {view === "following"
-                  ? "拉取关注"
+                  ? localizeMessage("拉取关注")
                   : view === "recommended"
-                    ? "拉取推荐"
-                    : "更新资讯"}
+                    ? localizeMessage("拉取推荐")
+                    : localizeMessage("更新资讯")}
               </button>
             </div>
 
@@ -880,18 +899,17 @@ export default function App() {
             <div
               className={`reading-workspace ${selected ? "has-selection" : ""}`}
             >
-              <section className="feed-section" aria-label="资讯列表">
+              <section className="feed-section" aria-label={localizeMessage("资讯列表")}>
                 <div className="feed-toolbar">
                   <div className="feed-total">
-                    <strong>{loading ? "…" : total}</strong> 条信息
-                    <span>{currentChannel.label}</span>
+                    <strong>{loading ? "…" : total}</strong>{localizeMessage("条信息")}<span>{localizeMessage(currentChannel.label)}</span>
                   </div>
                   <div className="feed-controls">
                     <label className="filter-input">
                       <Search size={14} />
                       <input
-                        aria-label="筛选已收录内容"
-                        placeholder="筛选已收录内容"
+                        aria-label={localizeMessage("筛选已收录内容")}
+                        placeholder={localizeMessage("筛选已收录内容")}
                         value={filter}
                         onChange={(event) => setFilter(event.target.value)}
                       />
@@ -899,7 +917,7 @@ export default function App() {
                         <button
                           className="icon-button small"
                           type="button"
-                          aria-label="清空筛选"
+                          aria-label={localizeMessage("清空筛选")}
                           onClick={() => setFilter("")}
                         >
                           <X size={13} />
@@ -907,7 +925,7 @@ export default function App() {
                       )}
                     </label>
                     <label className="select-wrap">
-                      <span className="sr-only">数据来源</span>
+                      <span className="sr-only">{localizeMessage("数据来源")}</span>
                       <select
                         value={source}
                         onChange={(event) => {
@@ -915,23 +933,23 @@ export default function App() {
                           setSelected(null);
                         }}
                       >
-                        <option value="all">所有来源</option>
+                        <option value="all">{localizeMessage("所有来源")}</option>
                         {Object.entries(SOURCES).map(([key, name]) => (
                           <option key={key} value={key}>
-                            {name}
+                            {localizeMessage(name)}
                           </option>
                         ))}
                       </select>
                       <ChevronDown size={13} />
                     </label>
                     <label className="select-wrap sort-select">
-                      <span className="sr-only">排列方式</span>
+                      <span className="sr-only">{localizeMessage("排列方式")}</span>
                       <select
                         value={sort}
                         onChange={(event) => setSort(event.target.value)}
                       >
-                        <option value="latest">最新优先</option>
-                        <option value="relevance">相关度</option>
+                        <option value="latest">{localizeMessage("最新优先")}</option>
+                        <option value="relevance">{localizeMessage("相关度")}</option>
                       </select>
                       <ChevronDown size={13} />
                     </label>
@@ -940,8 +958,8 @@ export default function App() {
                 {loadError ? (
                   <div className="empty-state error-state">
                     <CircleX size={29} />
-                    <h2>暂时无法读取资讯</h2>
-                    <p>{loadError}</p>
+                    <h2>{localizeMessage("暂时无法读取资讯")}</h2>
+                    <p>{localizeMessage(loadError)}</p>
                     <button
                       className="secondary-button"
                       onClick={() =>
@@ -952,12 +970,10 @@ export default function App() {
                           loadConnections(),
                         ])
                       }
-                    >
-                      重新连接
-                    </button>
+                    >{localizeMessage("重新连接")}</button>
                   </div>
                 ) : loading ? (
-                  <div className="loading-list" aria-label="正在读取资讯">
+                  <div className="loading-list" aria-label={localizeMessage("正在读取资讯")}>
                     {[1, 2, 3, 4].map((n) => (
                       <div className="skeleton-row" key={n}>
                         <div className="skeleton short" />
@@ -982,25 +998,25 @@ export default function App() {
                     </span>
                     <h2>
                       {filter || source !== "all"
-                        ? "没有符合筛选条件的内容"
+                        ? localizeMessage("没有符合筛选条件的内容")
                         : view === "following"
-                          ? "把你关注的信息带到这里"
+                          ? localizeMessage("把你关注的信息带到这里")
                           : view === "recommended"
-                            ? "阅读为你推荐的内容"
+                            ? localizeMessage("阅读为你推荐的内容")
                             : view === "bookmarked"
-                              ? "值得留下的信息，都在这里"
-                              : "开始收集你的交易信息"}
+                              ? localizeMessage("值得留下的信息，都在这里")
+                              : localizeMessage("开始收集你的交易信息")}
                     </h2>
                     <p>
                       {filter || source !== "all"
-                        ? "调整关键词或数据来源，查看已收录的信息。"
+                        ? localizeMessage("调整关键词或数据来源，查看已收录的信息。")
                         : view === "following"
-                          ? "启用 RSS 订阅或连接 X、Reddit 后拉取关注内容；即使没有关键词，也会收录。"
+                          ? localizeMessage("启用 RSS 订阅或连接 X、Reddit 后拉取关注内容；即使没有关键词，也会收录。")
                           : view === "recommended"
-                            ? "连接账号后可以拉取 X 推荐流和 Reddit API 首页。"
+                            ? localizeMessage("连接账号后可以拉取 X 推荐流和 Reddit API 首页。")
                             : view === "bookmarked"
-                              ? "点击资讯旁的收藏按钮，稍后可以在这里继续阅读。"
-                              : "从宏观、加密货币、股票和黄金开始，搜索会获取真实公开来源的最新内容。"}
+                              ? localizeMessage("点击资讯旁的收藏按钮，稍后可以在这里继续阅读。")
+                              : localizeMessage("从宏观、加密货币、股票和黄金开始，搜索会获取真实公开来源的最新内容。")}
                     </p>
                     {view !== "bookmarked" && (
                       <button
@@ -1014,10 +1030,10 @@ export default function App() {
                           <Search size={17} />
                         )}
                         {view === "following"
-                          ? "拉取关注内容"
+                          ? localizeMessage("拉取关注内容")
                           : view === "recommended"
-                            ? "拉取推荐内容"
-                            : "搜索最新信息"}
+                            ? localizeMessage("拉取推荐内容")
+                            : localizeMessage("搜索最新信息")}
                       </button>
                     )}
                     {(filter || source !== "all") && (
@@ -1027,9 +1043,7 @@ export default function App() {
                           setFilter("");
                           setSource("all");
                         }}
-                      >
-                        清除筛选
-                      </button>
+                      >{localizeMessage("清除筛选")}</button>
                     )}
                   </div>
                 ) : (
@@ -1056,7 +1070,7 @@ export default function App() {
                           <button
                             className={`icon-button bookmark-button ${item.bookmarked ? "is-saved" : ""}`}
                             aria-label={
-                              item.bookmarked ? "取消收藏" : "收藏资讯"
+                              item.bookmarked ? localizeMessage("取消收藏") : localizeMessage("收藏资讯")
                             }
                             onClick={() =>
                               void patchItem(item, {
@@ -1086,7 +1100,7 @@ export default function App() {
                                 chinese.model,
                               ).content.slice(0, 110)}
                             {!item.is_read && (
-                              <span className="unread-dot" aria-label="未读" />
+                              <span className="unread-dot" aria-label={localizeMessage("未读")} />
                             )}
                           </h2>
                           {previewText(
@@ -1114,22 +1128,20 @@ export default function App() {
                                 className={`translation-tag ${chinese.failures[item.id] ? "failed" : ""}`}
                               >
                                 {translationReady(item, chinese.model)
-                                  ? "中文译文"
+                                  ? localizeMessage("中文译文")
                                   : chinese.failures[item.id]
-                                    ? "翻译失败 · 原文"
+                                    ? localizeMessage("翻译失败 · 原文")
                                     : chinese.running
-                                      ? "翻译中 · 原文"
-                                      : "暂显示原文"}
+                                      ? localizeMessage("翻译中 · 原文")
+                                      : localizeMessage("暂显示原文")}
                               </span>
                             )}
                             {(item.topics || []).slice(0, 3).map((t) => (
-                              <span key={t}>{TOPIC_NAMES[t] || t}</span>
+                              <span key={t}>{localizeMessage(TOPIC_NAMES[t] || t)}</span>
                             ))}
                             {item.summary_kind === "llm" && (
                               <span className="ai-tag">
-                                <Sparkles size={11} />
-                                AI 摘要
-                              </span>
+                                <Sparkles size={11} />{localizeMessage("AI 摘要")}</span>
                             )}
                           </div>
                           <a
@@ -1137,9 +1149,7 @@ export default function App() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="original-link"
-                          >
-                            原文
-                            <ExternalLink size={12} />
+                          >{localizeMessage("原文")}<ExternalLink size={12} />
                           </a>
                         </div>
                       </article>
@@ -1148,9 +1158,7 @@ export default function App() {
                       <button
                         className="load-more"
                         onClick={() => void loadItems(true)}
-                      >
-                        加载更多
-                        <ChevronDown size={16} />
+                      >{localizeMessage("加载更多")}<ChevronDown size={16} />
                       </button>
                     )}
                   </div>
@@ -1179,53 +1187,47 @@ export default function App() {
                 <aside className="context-pane">
                   <div className="context-intro">
                     <BookOpen size={21} />
-                    <h2>把信息变成脉络</h2>
-                    <p>选中一条资讯，在这里阅读整理内容和原文。</p>
+                    <h2>{localizeMessage("把信息变成脉络")}</h2>
+                    <p>{localizeMessage("选中一条资讯，在这里阅读整理内容和原文。")}</p>
                   </div>
                   <div className="context-section">
-                    <div className="context-title">
-                      数据来源
-                      <button
+                    <div className="context-title">{localizeMessage("数据来源")}<button
                         className="text-button"
                         onClick={() => {
                           setPage("settings");
                           setSettingsTab("accounts");
                         }}
-                      >
-                        管理
-                      </button>
+                      >{localizeMessage("管理")}</button>
                     </div>
                     <SourceHealth sources={overview?.sources || []} />
                   </div>
                   <div className="context-section">
-                    <div className="context-title">收录方式</div>
+                    <div className="context-title">{localizeMessage("收录方式")}</div>
                     <div className="channel-note">
                       <Search size={16} />
                       <div>
-                        <strong>关键词资讯</strong>
-                        <p>搜集与你的研究主题相关的信息。</p>
+                        <strong>{localizeMessage("关键词资讯")}</strong>
+                        <p>{localizeMessage("搜集与你的研究主题相关的信息。")}</p>
                       </div>
                     </div>
                     <div className="channel-note">
                       <UsersRound size={16} />
                       <div>
-                        <strong>我的关注</strong>
-                        <p>关注账号和 RSS 订阅独立保留。</p>
+                        <strong>{localizeMessage("我的关注")}</strong>
+                        <p>{localizeMessage("关注账号和 RSS 订阅独立保留。")}</p>
                       </div>
                     </div>
                     <div className="channel-note">
                       <Sparkles size={16} />
                       <div>
-                        <strong>为我推荐</strong>
-                        <p>整理账号信息流，保留来源。</p>
+                        <strong>{localizeMessage("为我推荐")}</strong>
+                        <p>{localizeMessage("整理账号信息流，保留来源。")}</p>
                       </div>
                     </div>
                   </div>
                   <div className="context-footnote">
                     <CircleHelp size={15} />
-                    <span>
-                      每条信息均可跳转原文。摘要供快速阅读，原文提供完整上下文。
-                    </span>
+                    <span>{localizeMessage("每条信息均可跳转原文。摘要供快速阅读，原文提供完整上下文。")}</span>
                   </div>
                 </aside>
               )}
@@ -1250,6 +1252,7 @@ export default function App() {
             reloadSettings={loadSettings}
             tell={tell}
             onAuth={() => setPendingAuth(true)}
+            onTranslationSaved={chinese.configurationChanged}
             back={() => setPage("feed")}
           />
         )}
@@ -1257,10 +1260,10 @@ export default function App() {
       {toast && (
         <div className="toast" role="status">
           <CheckCircle2 size={18} />
-          <span>{toast}</span>
+          <span>{localizeMessage(toast)}</span>
           <button
             className="icon-button small"
-            aria-label="关闭通知"
+            aria-label={localizeMessage("关闭通知")}
             onClick={() => setToast("")}
           >
             <X size={15} />
@@ -1276,31 +1279,31 @@ function SourceHealth({ sources }: { sources: SourceState[] }) {
     {sources.map((s) => <div className="source-health" key={s.source}>
       <div className="source-status-row">
         <SourceMark source={s.source} />
-        <span>{s.name}</span>
+        <span>{localizeMessage(s.name)}</span>
         <span className={`source-status ${s.status}`}>
-          {s.status === "connected" ? "已连接" : s.status === "available" ? "可用" :
-            s.status === "partial" ? "部分可用" : s.status === "rate_limited" ? "限流中" :
-            ["error", "failed"].includes(s.status) ? "需检查" : s.status === "connecting" ? "连接中" :
-              s.status === "disabled" ? "未启用" : ["disconnected", "unconfigured", "not_configured"].includes(s.status) ? "未连接" : "待检查"}
+          {s.status === "connected" ? localizeMessage("已连接") : s.status === "available" ? localizeMessage("可用") :
+            s.status === "partial" ? localizeMessage("部分可用") : s.status === "rate_limited" ? localizeMessage("限流中") :
+            ["error", "failed"].includes(s.status) ? localizeMessage("需检查") : s.status === "connecting" ? localizeMessage("连接中") :
+              s.status === "disabled" ? localizeMessage("未启用") : ["disconnected", "unconfigured", "not_configured"].includes(s.status) ? localizeMessage("未连接") : localizeMessage("待检查")}
         </span>
       </div>
       <div className="source-health-meta">
-        <span>最近成功：{s.last_success_at ? timeLabel(s.last_success_at, true) : "尚无成功记录"}</span>
-        {s.last_attempt_at && <span>最近尝试：{timeLabel(s.last_attempt_at, true)}</span>}
-        {s.message && <p>{s.message}</p>}
+        <span>{localizeMessage("最近成功：")}{s.last_success_at ? timeLabel(s.last_success_at, true) : localizeMessage("尚无成功记录")}</span>
+        {s.last_attempt_at && <span>{localizeMessage("最近尝试：")}{timeLabel(s.last_attempt_at, true)}</span>}
+        {s.message && <p>{localizeMessage(s.message)}</p>}
       </div>
     </div>)}
-    {!sources.length && <p className="text-note">来源状态尚未加载。</p>}
+    {!sources.length && <p className="text-note">{localizeMessage("来源状态尚未加载。")}</p>}
   </div>;
 }
 
 function coverageLabel(value: Job["progress"][number]["coverage"]) {
-  if (value === "window") return "本次采集窗口";
+  if (value === "window") return localizeMessage("本次采集窗口");
   if (typeof value === "string" || typeof value === "number") return String(value);
   if (value && typeof value === "object") {
     return Object.entries(value).map(([key, entry]) => {
-      const labels: Record<string, string> = { pages: "页数", items: "取得条数", limit: "上限", truncated: "是否截断", complete: "是否完整" };
-      return `${labels[key] || key}：${typeof entry === "boolean" ? (entry ? "是" : "否") : String(entry)}`;
+      const labels: Record<string, string> = { pages: localizeMessage("页数"), items: localizeMessage("取得条数"), limit: localizeMessage("上限"), truncated: localizeMessage("是否截断"), complete: localizeMessage("是否完整") };
+      return t(`${labels[key] || key}：${typeof entry === "boolean" ? (entry ? "是" : "否") : String(entry)}`, `${labels[key] || key}: ${typeof entry === "boolean" ? (entry ? "Yes" : "No") : String(entry)}`);
     }).join(" · ");
   }
   return "";
@@ -1323,24 +1326,24 @@ function JobNotice({ job, close, pollError }: { job: Job; close: () => void; pol
         )}
         <strong>
           {job.status === "queued"
-            ? "采集任务已排队"
+            ? localizeMessage("采集任务已排队")
             : running
-              ? "正在从各个来源收集信息"
+              ? localizeMessage("正在从各个来源收集信息")
             : job.status === "failed"
-              ? "本次采集失败 · 已取得内容仍保留"
-              : `${job.status === "partial" ? "部分采集完成" : "收录完成"} · 新增 ${job.added ?? 0} 条`}
+              ? localizeMessage("本次采集失败 · 已取得内容仍保留")
+              : t(`${job.status === "partial" ? "部分采集完成" : "收录完成"} · 新增 ${job.added ?? 0} 条`, `${job.status === "partial" ? "Partly collected" : "Collection complete"} · ${job.added ?? 0} new items`)}
         </strong>
         {!running && (
           <button
             className="icon-button small"
-            aria-label="收起采集结果"
+            aria-label={localizeMessage("收起采集结果")}
             onClick={close}
           >
             <X size={15} />
           </button>
         )}
       </div>
-      {pollError && <p className="job-poll-error">暂时无法读取进度：{pollError}。正在自动重试，任务结果尚未确认。</p>}
+      {pollError && <p className="job-poll-error">{localizeMessage("暂时无法读取进度：")}{localizeMessage(pollError)}{localizeMessage("。正在自动重试，任务结果尚未确认。")}</p>}
       {(job.progress || []).length > 0 && (
         <div className="job-sources">
           {(job.progress || []).map((p, i) => (
@@ -1355,19 +1358,19 @@ function JobNotice({ job, close, pollError }: { job: Job; close: () => void; pol
               ) : (
                 <Clock3 size={12} />
               )}
-              {SOURCES[p.source as SourceKey] || p.source}
-              <span>{p.status === "running" ? "采集中" : p.status === "queued" || p.status === "pending" ? "待采集" :
-                p.status === "retry_wait" ? "等待重试" : ["success", "completed"].includes(p.status) ? "完成" : p.status === "partial" ? "部分完成" :
-                  ["error", "failed"].includes(p.status) ? "失败" : p.status === "skipped" ? "未采集" : p.status}</span>
-              {p.count !== undefined ? ` · ${p.count} 条` : ""}
+              {localizeMessage(SOURCES[p.source as SourceKey] || p.source)}
+              <span>{p.status === "running" ? localizeMessage("采集中") : p.status === "queued" || p.status === "pending" ? localizeMessage("待采集") :
+                p.status === "retry_wait" ? localizeMessage("等待重试") : ["success", "completed"].includes(p.status) ? localizeMessage("完成") : p.status === "partial" ? localizeMessage("部分完成") :
+                  ["error", "failed"].includes(p.status) ? localizeMessage("失败") : p.status === "skipped" ? localizeMessage("未采集") : p.status}</span>
+              {p.count !== undefined ? t(` · ${p.count} 条`, ` · ${p.count} items`) : ""}
               <ChevronDown size={12} />
             </summary>
             <div className="job-source-body">
-              <p>新增 {p.new ?? p.added ?? "—"} · 更新 {p.updated ?? "—"} · 重复 {p.duplicates ?? "—"} · 重试 {p.retries ?? "—"}</p>
-              {(p.query || p.queries?.length) && <p>实际查询：{p.queries?.join(" / ") || p.query}</p>}
-              {coverageLabel(p.coverage) && <p>采集覆盖：{coverageLabel(p.coverage)}</p>}
-              {p.truncated && <p>达到本次采集上限，尚未覆盖全部内容。</p>}
-              {p.message && <p>{p.message}</p>}
+              <p>{localizeMessage("新增")}{p.new ?? p.added ?? "—"}{localizeMessage("· 更新")}{p.updated ?? "—"}{localizeMessage("· 重复")}{p.duplicates ?? "—"}{localizeMessage("· 重试")}{p.retries ?? "—"}</p>
+              {(p.query || p.queries?.length) && <p>{localizeMessage("实际查询：")}{p.queries?.join(" / ") || p.query}</p>}
+              {coverageLabel(p.coverage) && <p>{localizeMessage("采集覆盖：")}{coverageLabel(p.coverage)}</p>}
+              {p.truncated && <p>{localizeMessage("达到本次采集上限，尚未覆盖全部内容。")}</p>}
+              {p.message && <p>{localizeMessage(p.message)}</p>}
             </div>
             </details>
           ))}
@@ -1375,11 +1378,11 @@ function JobNotice({ job, close, pollError }: { job: Job; close: () => void; pol
       )}
       {(job.errors || []).length > 0 && (
         <details className="job-errors">
-          <summary>{job.errors.length} 个来源需要检查</summary>
+          <summary>{job.errors.length}{localizeMessage("个来源需要检查")}</summary>
           {(job.errors || []).map((e, i) => (
             <p key={i}>
-              <strong>{SOURCES[e.source as SourceKey] || e.source}：</strong>
-              {e.message}
+              <strong>{localizeMessage(SOURCES[e.source as SourceKey] || e.source)}：</strong>
+              {localizeMessage(e.message)}
             </p>
           ))}
         </details>
@@ -1459,7 +1462,7 @@ function ReadPane({
     setSummarizing(true);
     try {
       update(await api<Post>(`/items/${item.id}/summarize`, json("POST")));
-      tell("摘要已更新。");
+      tell(localizeMessage("摘要已更新。"));
     } catch (error) {
       tell(errorMessage(error));
     } finally {
@@ -1492,7 +1495,7 @@ function ReadPane({
       if (!controller.signal.aborted) {
         update(result);
         setTab("original");
-        tell("文章正文已读取，原链接已保留。");
+        tell(localizeMessage("文章正文已读取，原链接已保留。"));
       }
     } catch (error) {
       if (!controller.signal.aborted) setContentError(errorMessage(error));
@@ -1505,11 +1508,11 @@ function ReadPane({
   return (
     <aside className="read-pane">
       <div className="read-pane-toolbar">
-        <span>阅读详情</span>
+        <span>{localizeMessage("阅读详情")}</span>
         <div>
           <button
             className={`icon-button ${item.bookmarked ? "is-saved" : ""}`}
-            aria-label={item.bookmarked ? "取消收藏" : "收藏资讯"}
+            aria-label={item.bookmarked ? localizeMessage("取消收藏") : localizeMessage("收藏资讯")}
             onClick={() => patch({ bookmarked: !item.bookmarked })}
           >
             <Bookmark
@@ -1519,7 +1522,7 @@ function ReadPane({
           </button>
           <button
             className="icon-button"
-            aria-label="关闭阅读详情"
+            aria-label={localizeMessage("关闭阅读详情")}
             onClick={close}
           >
             <PanelRightClose size={19} />
@@ -1552,35 +1555,33 @@ function ReadPane({
           rel="noopener noreferrer"
         >
           <ExternalLink size={15} />
-          {["x", "reddit", "hackernews"].includes(item.source) ? "打开原始帖子" : "打开来源原文"}
+          {["x", "reddit", "hackernews"].includes(item.source) ? localizeMessage("打开原始帖子") : localizeMessage("打开来源原文")}
         </a>}
         {externalUrl && externalUrl !== originalUrl && <a
           className="secondary-button original-button"
           href={externalUrl}
           target="_blank"
           rel="noopener noreferrer"
-        ><ExternalLink size={15} />打开外链文章</a>}
+        ><ExternalLink size={15} />{localizeMessage("打开外链文章")}</a>}
         </div>
         {["rss", "news"].includes(item.source) && item.content_kind !== "extracted_html" &&
           <div className="article-content-action">
             <button className="quiet-button" disabled={contentLoading} onClick={() => void loadArticleContent()}>
               {contentLoading ? <LoaderCircle size={14} className="spin" /> : <BookOpen size={14} />}
-              {contentLoading ? "正在读取正文" : contentError ? "重试读取正文" : "读取文章正文"}
+              {contentLoading ? localizeMessage("正在读取正文") : contentError ? localizeMessage("重试读取正文") : localizeMessage("读取文章正文")}
             </button>
-            {contentError && <p className="inline-error" role="alert">正文未能读取：{contentError}。现有摘录与原链接已保留。</p>}
+            {contentError && <p className="inline-error" role="alert">{localizeMessage("正文未能读取：")}{contentError}{localizeMessage("。现有摘录与原链接已保留。")}</p>}
           </div>}
         <div className="detail-tabs">
           <button
             className={tab === "summary" ? "active" : ""}
             onClick={() => setTab("summary")}
-          >
-            整理内容
-          </button>
+          >{localizeMessage("整理内容")}</button>
           <button
             className={tab === "original" ? "active" : ""}
             onClick={() => setTab("original")}
           >
-            {chinese ? "中文全文" : "原始文本"}
+            {chinese ? localizeMessage("中文全文") : localizeMessage("原始文本")}
           </button>
         </div>
         {tab === "summary" ? (
@@ -1588,19 +1589,15 @@ function ReadPane({
             <div className="summary-label">
               {item.summary_kind === "llm" ? (
                 <>
-                  <Sparkles size={14} />
-                  AI 摘要
-                </>
+                  <Sparkles size={14} />{localizeMessage("AI 摘要")}</>
               ) : (
                 <>
-                  <FileText size={14} />
-                  原文摘录
-                </>
+                  <FileText size={14} />{localizeMessage("原文摘录")}</>
               )}
             </div>
             <div className="detail-body">
               <TextParagraphs text={previewText(display) ||
-                "此来源只提供标题或简短文本，请打开原文阅读完整内容。"} />
+                localizeMessage("此来源只提供标题或简短文本，请打开原文阅读完整内容。")} />
             </div>
             {llmEnabled && (
               <button
@@ -1613,24 +1610,24 @@ function ReadPane({
                 ) : (
                   <Sparkles size={15} />
                 )}
-                {summarizing ? "正在整理" : "生成 AI 摘要"}
+                {summarizing ? localizeMessage("正在整理") : localizeMessage("生成 AI 摘要")}
               </button>
             )}
             <div className="detail-section">
-              <h3>研究主题</h3>
+              <h3>{localizeMessage("研究主题")}</h3>
               <div className="detail-topics">
                 {item.topics.length ? (
                   item.topics.map((t) => (
-                    <span key={t}>{TOPIC_NAMES[t] || t}</span>
+                    <span key={t}>{localizeMessage(TOPIC_NAMES[t] || t)}</span>
                   ))
                 ) : (
-                  <span>未分类</span>
+                  <span>{localizeMessage("未分类")}</span>
                 )}
               </div>
             </div>
             {item.matched_keywords.length > 0 && (
               <div className="detail-section">
-                <h3>命中关键词</h3>
+                <h3>{localizeMessage("命中关键词")}</h3>
                 <div className="detail-keywords">
                   {item.matched_keywords.map((k) => (
                     <span key={k}>#{k}</span>
@@ -1642,61 +1639,61 @@ function ReadPane({
         ) : (
           <>
             <div className="detail-body original-text">
-              <TextParagraphs text={display.content || "此来源只提供标题和链接。"} />
+              <TextParagraphs text={display.content || localizeMessage("此来源只提供标题和链接。")} />
             </div>
             <p className="text-note">
               {chinese && translationReady(item, translationModel)
-                ? "这里是来源文本的中文译文；完整文章或讨论请查看原文。"
-                : "这里保留的是采集时来源返回的文本，完整文章或讨论请查看原文。"}
+                ? localizeMessage("这里是来源文本的中文译文；完整文章或讨论请查看原文。")
+                : localizeMessage("这里保留的是采集时来源返回的文本，完整文章或讨论请查看原文。")}
             </p>
             {chinese && (
               <details className="original-disclosure">
-                <summary>查看原始文本</summary>
+                <summary>{localizeMessage("查看原始文本")}</summary>
                 <div className="detail-body">
-                  <TextParagraphs text={item.content || "此来源只提供标题和链接。"} />
+                  <TextParagraphs text={item.content || localizeMessage("此来源只提供标题和链接。")} />
                 </div>
               </details>
             )}
           </>
         )}
         <div className="detail-section provenance-section">
-          <h3>收录与来源</h3>
+          <h3>{localizeMessage("收录与来源")}</h3>
           <p className="detail-secondary">
             {item.channels.map((c) => CHANNELS.find((v) => v.id === c)?.label || c).join(" · ")}
             <br />{timeLabel(item.collected_at, true)}
           </p>
           {!!item.observations?.length && <ul className="observation-list">
             {item.observations.map((observation, index) => <li key={`${observation.source}-${observation.external_id}-${index}`}>
-              <strong>{observation.source_name || SOURCES[observation.source as SourceKey] || observation.source || "来源记录"}</strong>
+              <strong>{observation.source_name || SOURCES[observation.source as SourceKey] || observation.source || localizeMessage("来源记录")}</strong>
               {observation.author && <span>{observation.author}</span>}
               {(observation.channels?.length || observation.channel) && <span>{(observation.channels?.length ? observation.channels : [observation.channel]).map((value) => CHANNELS.find((channel) => channel.id === value)?.label || value).join(" · ")}</span>}
-              {(observation.queries?.length || observation.query) && <p>研究查询：{observation.queries?.join(" / ") || observation.query}</p>}
-              {observation.provider_query && observation.provider_query !== observation.query && <p>来源查询：{observation.provider_query}</p>}
+              {(observation.queries?.length || observation.query) && <p>{localizeMessage("研究查询：")}{observation.queries?.join(" / ") || observation.query}</p>}
+              {observation.provider_query && observation.provider_query !== observation.query && <p>{localizeMessage("来源查询：")}{observation.provider_query}</p>}
               {(observation.collected_at || observation.observed_at) && <time>{timeLabel(observation.collected_at || observation.observed_at || null, true)}</time>}
-              {webUrl(observation.url) && <a href={webUrl(observation.url)} target="_blank" rel="noopener noreferrer">查看此来源 <ExternalLink size={12} /></a>}
+              {webUrl(observation.url) && <a href={webUrl(observation.url)} target="_blank" rel="noopener noreferrer">{localizeMessage("查看此来源")}<ExternalLink size={12} /></a>}
             </li>)}
           </ul>}
         </div>
         {["reddit", "hackernews"].includes(item.source) && <div className="detail-section discussion-section">
           <div className="discussion-heading">
-            <h3>评论讨论</h3>
+            <h3>{localizeMessage("评论讨论")}</h3>
             <button className="text-button" disabled={discussionLoading} onClick={() => void loadDiscussion()}>
               {discussionLoading ? <LoaderCircle size={13} className="spin" /> : <MessageSquare size={13} />}
-              {discussionLoading ? "正在加载" : discussionError ? "重试评论" : discussion ? "刷新评论" : "加载评论"}
+              {discussionLoading ? localizeMessage("正在加载") : discussionError ? localizeMessage("重试评论") : discussion ? localizeMessage("刷新评论") : localizeMessage("加载评论")}
             </button>
           </div>
-          {!discussion && !discussionError && !discussionLoading && <p className="text-note">点击后从来源读取部分评论；完整讨论可打开原始帖子查看。</p>}
-          {discussionError && <p className="inline-error" role="alert">评论未能加载：{discussionError}。可重试或打开原始帖子。</p>}
-          {discussionLoading && <p className="text-note" role="status">正在读取来源评论…</p>}
+          {!discussion && !discussionError && !discussionLoading && <p className="text-note">{localizeMessage("点击后从来源读取部分评论；完整讨论可打开原始帖子查看。")}</p>}
+          {discussionError && <p className="inline-error" role="alert">{localizeMessage("评论未能加载：")}{localizeMessage(discussionError)}{localizeMessage("。可重试或打开原始帖子。")}</p>}
+          {discussionLoading && <p className="text-note" role="status">{localizeMessage("正在读取来源评论…")}</p>}
           {discussion && <>
             {discussion.message && <p className="text-note">{discussion.message}</p>}
-            {!discussion.items.length && <p className="text-note">本次没有取得可显示的评论。请查看原始帖子。</p>}
+            {!discussion.items.length && <p className="text-note">{localizeMessage("本次没有取得可显示的评论。请查看原始帖子。")}</p>}
             <ol className="discussion-list">
               {discussion.items.map((comment) => <li key={comment.external_id} style={{ marginInlineStart: `${commentDepth(comment, discussion.items) * 10}px` }}>
-                <div className="comment-meta"><strong>{comment.author || "匿名作者"}</strong><time>{timeLabel(comment.published_at)}</time></div>
-                <div className="comment-content"><TextParagraphs text={comment.content || "此评论没有可用文本。"} /></div>
-                <div className="comment-footer">{comment.score !== undefined && <span>{comment.score.toLocaleString()} 分</span>}
-                  {webUrl(comment.url) && <a href={webUrl(comment.url)} target="_blank" rel="noopener noreferrer">原评论 <ExternalLink size={11} /></a>}
+                <div className="comment-meta"><strong>{comment.author || localizeMessage("匿名作者")}</strong><time>{timeLabel(comment.published_at)}</time></div>
+                <div className="comment-content"><TextParagraphs text={comment.content || localizeMessage("此评论没有可用文本。")} /></div>
+                <div className="comment-footer">{comment.score !== undefined && <span>{comment.score.toLocaleString()}{localizeMessage("分")}</span>}
+                  {webUrl(comment.url) && <a href={webUrl(comment.url)} target="_blank" rel="noopener noreferrer">{localizeMessage("原评论")}<ExternalLink size={11} /></a>}
                 </div>
               </li>)}
             </ol>
@@ -1715,11 +1712,11 @@ function ReadPane({
                   )}
                   {v.toLocaleString()}{" "}
                   {k === "comments"
-                    ? "讨论"
+                    ? localizeMessage("讨论")
                     : k === "likes"
-                      ? "赞"
+                      ? localizeMessage("赞")
                       : k === "reposts"
-                        ? "转发"
+                        ? localizeMessage("转发")
                         : k}
                 </span>
               ))}
@@ -1730,7 +1727,7 @@ function ReadPane({
   );
 }
 
-type SettingsTab = "accounts" | "preferences" | "feeds";
+type SettingsTab = "accounts" | "preferences" | "feeds" | "translation";
 function SettingsPage({
   settings,
   connections,
@@ -1742,6 +1739,7 @@ function SettingsPage({
   reloadSettings,
   tell,
   onAuth,
+  onTranslationSaved,
   back,
 }: {
   settings: Settings | null;
@@ -1754,6 +1752,7 @@ function SettingsPage({
   reloadSettings: () => Promise<void>;
   tell: (message: string) => void;
   onAuth: () => void;
+  onTranslationSaved: () => Promise<void>;
   back: () => void;
 }) {
   const [draft, setDraft] = useState<Settings | null>(null);
@@ -1822,7 +1821,7 @@ function SettingsPage({
       llm: { ...draft.llm, api_key: llmKey || undefined },
     });
     setLlmKey("");
-    tell("工作区设置已保存。");
+    tell(localizeMessage("工作区设置已保存。"));
   }
   async function authorizeReddit() {
     const popup = window.open(
@@ -1848,7 +1847,7 @@ function SettingsPage({
       else window.location.href = result.url;
       setClientSecret("");
       onAuth();
-      tell("请在 Reddit 授权页面完成登录。");
+      tell(localizeMessage("请在 Reddit 授权页面完成登录。"));
     } catch (error) {
       popup?.close();
       throw error;
@@ -1874,11 +1873,11 @@ function SettingsPage({
       return { ...feed, id, enabled: feed.enabled ?? true };
     });
     if (!additions.length) {
-      tell("这些来源已在订阅列表中；可在列表中启用，不会改写已有配置。");
+      tell(localizeMessage("这些来源已在订阅列表中；可在列表中启用，不会改写已有配置。"));
       return;
     }
     updateDraft("rss_feeds", [...draft.rss_feeds, ...additions]);
-    tell(`已加入 ${additions.length} 个待保存来源，请点击“保存来源”。`);
+    tell(t(`已加入 ${additions.length} 个待保存来源，请点击“保存来源”。`, `${additions.length} feeds added to the draft. Click Save feeds.`));
   }
   const xState = connections.x?.state || "disconnected";
   const redditState = connections.reddit?.state || "disconnected";
@@ -1890,44 +1889,39 @@ function SettingsPage({
     <section className="settings-page">
       <div className="page-heading">
         <div>
-          <div className="page-kicker">个人工作区</div>
-          <h1>来源与账号</h1>
+          <div className="page-kicker">{localizeMessage("个人工作区")}</div>
+          <h1>{localizeMessage("来源与账号")}</h1>
         </div>
         <button className="secondary-button" onClick={back}>
-          <BookOpen size={16} />
-          返回资讯
-        </button>
+          <BookOpen size={16} />{localizeMessage("返回资讯")}</button>
       </div>
-      <div className="settings-tabs" role="tablist" aria-label="设置分类">
+      <div className="settings-tabs" role="tablist" aria-label={localizeMessage("设置分类")}>
         <button
           role="tab"
           aria-selected={tab === "accounts"}
           className={tab === "accounts" ? "active" : ""}
           onClick={() => setTab("accounts")}
-        >
-          账号连接
-        </button>
+        >{localizeMessage("账号连接")}</button>
         <button
           role="tab"
           aria-selected={tab === "preferences"}
           className={tab === "preferences" ? "active" : ""}
           onClick={() => setTab("preferences")}
-        >
-          关键词与加工
-        </button>
+        >{localizeMessage("关键词与加工")}</button>
         <button
           role="tab"
           aria-selected={tab === "feeds"}
           className={tab === "feeds" ? "active" : ""}
           onClick={() => setTab("feeds")}
-        >
-          RSS 来源
+        >{localizeMessage("RSS 来源")}</button>
+        <button role="tab" aria-selected={tab === "translation"} className={tab === "translation" ? "active" : ""} onClick={() => setTab("translation")}>
+          <Languages size={15} />{t("翻译", "Translation")}
         </button>
       </div>
       {tab === "accounts" ? (
         <div className="settings-content">
           <section className="connection-panel">
-            <div className="connection-heading"><div><h2>来源健康</h2><p>最近成功与最近尝试分别记录，失败不会被显示为成功更新。</p></div></div>
+            <div className="connection-heading"><div><h2>{localizeMessage("来源健康")}</h2><p>{localizeMessage("最近成功与最近尝试分别记录，失败不会被显示为成功更新。")}</p></div></div>
             <div className="connection-body"><SourceHealth sources={sources} /></div>
           </section>
           <section className="connection-panel">
@@ -1936,7 +1930,7 @@ function SettingsPage({
                 <SourceMark source="x" />
                 <div>
                   <h2>X</h2>
-                  <p>关键词、关注博主、Following 和 For You</p>
+                  <p>{localizeMessage("关键词、关注博主、Following 和 For You")}</p>
                 </div>
               </div>
               <ConnectionBadge
@@ -1945,12 +1939,12 @@ function SettingsPage({
               />
             </div>
             <div className="connection-body">
-              <p>在独立浏览器窗口中登录自己的账号，本站不接收你的 X 密码。</p>
+              <p>{localizeMessage("在独立浏览器窗口中登录自己的账号，本站不接收你的 X 密码。")}</p>
               {connections.x?.message && (
                 <div
                   className={`connection-message ${xState === "error" ? "error" : ""}`}
                 >
-                  {connections.x.message}
+                  {localizeMessage(connections.x.message)}
                 </div>
               )}
               <div className="connection-actions">
@@ -1965,7 +1959,7 @@ function SettingsPage({
                       );
                       tell(
                         response.message ||
-                          "已打开登录窗口，请在浏览器中完成登录。",
+                          localizeMessage("已打开登录窗口，请在浏览器中完成登录。"),
                       );
                     })
                   }
@@ -1976,10 +1970,10 @@ function SettingsPage({
                     <ExternalLink size={16} />
                   )}
                   {xState === "connecting"
-                    ? "等待浏览器登录"
+                    ? localizeMessage("等待浏览器登录")
                     : xState === "connected"
-                      ? "重新登录 X"
-                      : "在浏览器登录 X"}
+                      ? localizeMessage("重新登录 X")
+                      : localizeMessage("在浏览器登录 X")}
                 </button>
                 {xState === "connected" && (
                   <button
@@ -1992,13 +1986,11 @@ function SettingsPage({
                           json("POST"),
                         );
                         await reloadSettings();
-                        tell(`已同步 ${result.count} 个关注账号。`);
+                        tell(t(`已同步 ${result.count} 个关注账号。`, `${result.count} followed accounts synced.`));
                       })
                     }
                   >
-                    <UsersRound size={16} />
-                    同步关注名单
-                  </button>
+                    <UsersRound size={16} />{localizeMessage("同步关注名单")}</button>
                 )}
                 {xState !== "disconnected" && (
                   <button
@@ -2007,27 +1999,22 @@ function SettingsPage({
                     onClick={() =>
                       void perform("x-disconnect", async () => {
                         await api("/connections/x", json("DELETE"));
-                        tell("X 连接已移除。");
+                        tell(localizeMessage("X 连接已移除。"));
                       })
                     }
-                  >
-                    断开连接
-                  </button>
+                  >{localizeMessage("断开连接")}</button>
                 )}
               </div>
               <details className="advanced-settings">
-                <summary>使用已有登录会话</summary>
-                <p className="text-note">
-                  如果浏览器登录不可用，可以导入你自己导出的 Cookie
-                  JSON。会话只保存到本机。
-                </p>
+                <summary>{localizeMessage("使用已有登录会话")}</summary>
+                <p className="text-note">{localizeMessage("如果浏览器登录不可用，可以导入你自己导出的 Cookie JSON。会话只保存到本机。")}</p>
                 <label className="field">
                   <span>Cookie JSON</span>
                   <textarea
                     rows={4}
                     value={cookies}
                     onChange={(event) => setCookies(event.target.value)}
-                    placeholder="粘贴 Cookie JSON（需要 auth_token 与 ct0）"
+                    placeholder={localizeMessage("粘贴 Cookie JSON（需要 auth_token 与 ct0）")}
                     autoComplete="off"
                     spellCheck={false}
                   />
@@ -2042,12 +2029,10 @@ function SettingsPage({
                         json("POST", { cookies }),
                       );
                       setCookies("");
-                      tell(result.message || "登录会话已保存。");
+                      tell(result.message || localizeMessage("登录会话已保存。"));
                     })
                   }
-                >
-                  保存并验证会话
-                </button>
+                >{localizeMessage("保存并验证会话")}</button>
               </details>
             </div>
           </section>
@@ -2057,7 +2042,7 @@ function SettingsPage({
                 <SourceMark source="reddit" />
                 <div>
                   <h2>Reddit</h2>
-                  <p>关键词、订阅社区、指定作者和账号 API 首页</p>
+                  <p>{localizeMessage("关键词、订阅社区、指定作者和账号 API 首页")}</p>
                 </div>
               </div>
               <ConnectionBadge
@@ -2066,15 +2051,12 @@ function SettingsPage({
               />
             </div>
             <div className="connection-body">
-              <p>
-                通过 Reddit 授权连接账号。首次使用需要填写已获 API
-                访问权限的应用信息。
-              </p>
+              <p>{localizeMessage("通过 Reddit 授权连接账号。首次使用需要填写已获 API 访问权限的应用信息。")}</p>
               {connections.reddit?.message && (
                 <div
                   className={`connection-message ${redditState === "error" ? "error" : ""}`}
                 >
-                  {connections.reddit.message}
+                  {localizeMessage(connections.reddit.message)}
                 </div>
               )}
               <div className="form-grid">
@@ -2086,28 +2068,26 @@ function SettingsPage({
                     placeholder={
                       connections.reddit?.configured ||
                       connections.reddit?.client_id_configured
-                        ? "已配置，留空沿用"
-                        : "填写 Reddit 应用 Client ID"
+                        ? localizeMessage("已配置，留空沿用")
+                        : localizeMessage("填写 Reddit 应用 Client ID")
                     }
                     autoComplete="off"
                   />
                 </label>
                 <label className="field">
                   <span>
-                    Client Secret <small>Installed app 可留空</small>
+                    Client Secret <small>{localizeMessage("Installed app 可留空")}</small>
                   </span>
                   <input
                     type="password"
                     value={clientSecret}
                     onChange={(event) => setClientSecret(event.target.value)}
-                    placeholder="填写应用密钥"
+                    placeholder={localizeMessage("填写应用密钥")}
                     autoComplete="new-password"
                   />
                 </label>
               </div>
-              <div className="callback-note">
-                应用回调地址：
-                <code>
+              <div className="callback-note">{localizeMessage("应用回调地址：")}<code>
                   http://localhost:8787/api/connections/reddit/callback
                 </code>
                 <button
@@ -2117,11 +2097,9 @@ function SettingsPage({
                       .writeText(
                         "http://localhost:8787/api/connections/reddit/callback",
                       )
-                      .then(() => tell("回调地址已复制。"));
+                      .then(() => tell(localizeMessage("回调地址已复制。")));
                   }}
-                >
-                  复制
-                </button>
+                >{localizeMessage("复制")}</button>
               </div>
               <div className="connection-actions">
                 <button
@@ -2139,9 +2117,7 @@ function SettingsPage({
                     <LoaderCircle size={16} className="spin" />
                   ) : (
                     <ExternalLink size={16} />
-                  )}
-                  登录并授权 Reddit
-                </button>
+                  )}{localizeMessage("登录并授权 Reddit")}</button>
                 {redditState === "connected" && (
                   <button
                     className="secondary-button"
@@ -2153,12 +2129,10 @@ function SettingsPage({
                           json("POST"),
                         );
                         await reloadSettings();
-                        tell(`已同步 ${result.count} 项订阅。`);
+                        tell(t(`已同步 ${result.count} 项订阅。`, `${result.count} subscriptions synced.`));
                       })
                     }
-                  >
-                    同步订阅
-                  </button>
+                  >{localizeMessage("同步订阅")}</button>
                 )}
                 {redditState === "connected" && (
                   <button
@@ -2167,26 +2141,19 @@ function SettingsPage({
                     onClick={() =>
                       void perform("reddit-disconnect", async () => {
                         await api("/connections/reddit", json("DELETE"));
-                        tell("Reddit 连接已移除。");
+                        tell(localizeMessage("Reddit 连接已移除。"));
                       })
                     }
-                  >
-                    断开连接
-                  </button>
+                  >{localizeMessage("断开连接")}</button>
                 )}
               </div>
-              <p className="text-note">
-                Reddit 的 API Best
-                首页与网页上的个性化推荐可能不同。读取作者投稿时，不要求含有关键词。
-              </p>
+              <p className="text-note">{localizeMessage("Reddit 的 API Best 首页与网页上的个性化推荐可能不同。读取作者投稿时，不要求含有关键词。")}</p>
               <a
                 className="subtle-link"
                 href="https://www.reddit.com/prefs/apps"
                 target="_blank"
                 rel="noopener noreferrer"
-              >
-                查看 Reddit 应用设置
-                <ExternalLink size={12} />
+              >{localizeMessage("查看 Reddit 应用设置")}<ExternalLink size={12} />
               </a>
             </div>
           </section>
@@ -2197,15 +2164,15 @@ function SettingsPage({
                   <Rss size={23} />
                   <div>
                     <h2>
-                      RSSHub <span className="optional-label">可选</span>
+                      RSSHub <span className="optional-label">{localizeMessage("可选")}</span>
                     </h2>
-                    <p>接入已经运行的 RSSHub 实例</p>
+                    <p>{localizeMessage("接入已经运行的 RSSHub 实例")}</p>
                   </div>
                 </div>
               </div>
               <div className="connection-body">
                 <label className="field">
-                  <span>RSSHub 地址</span>
+                  <span>{localizeMessage("RSSHub 地址")}</span>
                   <input
                     type="url"
                     value={draft.rsshub_url || ""}
@@ -2215,51 +2182,46 @@ function SettingsPage({
                     placeholder="http://127.0.0.1:1200"
                   />
                 </label>
-                <p className="text-note">
-                  保存地址仅表示已配置实例。本人首页仍需配置自己的会话并实际验证；当前尚未验证 RSSHub 本人首页。
-                  普通公开路由可作为 RSS 订阅加入，账号推荐流请使用上方的账号连接。
-                </p>
+                <p className="text-note">{localizeMessage("保存地址仅表示已配置实例。本人首页仍需配置自己的会话并实际验证；当前尚未验证 RSSHub 本人首页。 普通公开路由可作为 RSS 订阅加入，账号推荐流请使用上方的账号连接。")}</p>
                 <button
                   className="secondary-button"
                   disabled={!!busy}
                   onClick={() => void perform("save-rsshub", saveDraft)}
-                >
-                  保存地址
-                </button>
+                >{localizeMessage("保存地址")}</button>
               </div>
             </section>
           )}
         </div>
+      ) : tab === "translation" ? (
+        <TranslationSettings onSaved={onTranslationSaved} />
       ) : !draft ? (
         <div className="empty-state">
           <LoaderCircle className="spin" size={25} />
-          <p>正在读取工作区配置…</p>
+          <p>{localizeMessage("正在读取工作区配置…")}</p>
           <button
             className="secondary-button"
             onClick={() =>
               void reloadSettings().catch((error) => tell(errorMessage(error)))
             }
-          >
-            重新读取
-          </button>
+          >{localizeMessage("重新读取")}</button>
         </div>
       ) : tab === "preferences" ? (
         <div className="settings-content">
           <section className="connection-panel">
             <div className="connection-heading">
               <div>
-                <h2>研究关键词</h2>
-                <p>保存你的研究方向；搜索时仍可输入任何关键词。</p>
+                <h2>{localizeMessage("研究关键词")}</h2>
+                <p>{localizeMessage("保存你的研究方向；搜索时仍可输入任何关键词。")}</p>
               </div>
             </div>
             <div className="connection-body">
               <label className="field">
-                <span>关键词，每行一个</span>
+                <span>{localizeMessage("关键词，每行一个")}</span>
                 <textarea
                   value={keywords}
                   onChange={(event) => setKeywords(event.target.value)}
                   rows={6}
-                  placeholder="宏观\n加密货币\n美股\n港股\nA股\n黄金"
+                  placeholder={localizeMessage("宏观\n加密货币\n美股\n港股\nA股\n黄金")}
                 />
               </label>
             </div>
@@ -2267,27 +2229,27 @@ function SettingsPage({
           <section className="connection-panel">
             <div className="connection-heading">
               <div>
-                <h2>关注博主</h2>
-                <p>这里的作者内容会独立收录，不强制匹配关键词。</p>
+                <h2>{localizeMessage("关注博主")}</h2>
+                <p>{localizeMessage("这里的作者内容会独立收录，不强制匹配关键词。")}</p>
               </div>
             </div>
             <div className="connection-body form-grid">
               <label className="field">
-                <span>X 用户名，每行一个</span>
+                <span>{localizeMessage("X 用户名，每行一个")}</span>
                 <textarea
                   rows={5}
                   value={xAuthors}
                   onChange={(event) => setXAuthors(event.target.value)}
-                  placeholder="用户名，不需要 @"
+                  placeholder={localizeMessage("用户名，不需要 @")}
                 />
               </label>
               <label className="field">
-                <span>Reddit 用户名，每行一个</span>
+                <span>{localizeMessage("Reddit 用户名，每行一个")}</span>
                 <textarea
                   rows={5}
                   value={redditAuthors}
                   onChange={(event) => setRedditAuthors(event.target.value)}
-                  placeholder="用户名，不需要 u/"
+                  placeholder={localizeMessage("用户名，不需要 u/")}
                 />
               </label>
             </div>
@@ -2295,13 +2257,13 @@ function SettingsPage({
           <section className="connection-panel">
             <div className="connection-heading">
               <div>
-                <h2>自动更新</h2>
-                <p>网站服务运行期间，按设定间隔更新关键词、关注订阅和已连接账号推荐。</p>
+                <h2>{localizeMessage("自动更新")}</h2>
+                <p>{localizeMessage("网站服务运行期间，按设定间隔更新关键词、关注订阅和已连接账号推荐。")}</p>
               </div>
             </div>
             <div className="connection-body">
               <label className="field compact-field">
-                <span>更新间隔</span>
+                <span>{localizeMessage("更新间隔")}</span>
                 <select
                   value={draft.auto_refresh_minutes}
                   onChange={(event) =>
@@ -2311,11 +2273,11 @@ function SettingsPage({
                     )
                   }
                 >
-                  <option value={0}>手动更新</option>
-                  <option value={15}>每 15 分钟</option>
-                  <option value={30}>每 30 分钟</option>
-                  <option value={60}>每 1 小时</option>
-                  <option value={240}>每 4 小时</option>
+                  <option value={0}>{localizeMessage("手动更新")}</option>
+                  <option value={15}>{localizeMessage("每 15 分钟")}</option>
+                  <option value={30}>{localizeMessage("每 30 分钟")}</option>
+                  <option value={60}>{localizeMessage("每 1 小时")}</option>
+                  <option value={240}>{localizeMessage("每 4 小时")}</option>
                 </select>
               </label>
             </div>
@@ -2323,10 +2285,9 @@ function SettingsPage({
           <section className="connection-panel">
             <div className="connection-heading">
               <div>
-                <h2>
-                  AI 整理 <span className="optional-label">可选</span>
+                <h2>{localizeMessage("AI 整理")}<span className="optional-label">{localizeMessage("可选")}</span>
                 </h2>
-                <p>不启用时展示原文摘录；启用后可生成中文摘要。</p>
+                <p>{localizeMessage("不启用时展示原文摘录；启用后可生成中文摘要。")}</p>
               </div>
               <label className="toggle-label">
                 <input
@@ -2339,13 +2300,13 @@ function SettingsPage({
                     })
                   }
                 />
-                <span>启用</span>
+                <span>{localizeMessage("启用")}</span>
               </label>
             </div>
             <div className="connection-body">
               <div className="form-grid">
                 <label className="field">
-                  <span>兼容 API 地址</span>
+                  <span>{localizeMessage("兼容 API 地址")}</span>
                   <input
                     value={draft.llm.base_url || ""}
                     onChange={(event) =>
@@ -2358,7 +2319,7 @@ function SettingsPage({
                   />
                 </label>
                 <label className="field">
-                  <span>模型名称</span>
+                  <span>{localizeMessage("模型名称")}</span>
                   <input
                     value={draft.llm.model || ""}
                     onChange={(event) =>
@@ -2367,7 +2328,7 @@ function SettingsPage({
                         model: event.target.value,
                       })
                     }
-                    placeholder="填写你使用的模型名称"
+                    placeholder={localizeMessage("填写你使用的模型名称")}
                   />
                 </label>
               </div>
@@ -2375,20 +2336,18 @@ function SettingsPage({
                 <span>
                   API Key{" "}
                   <small>
-                    {configuredLlm ? "已保存，留空沿用" : "本地模型服务可留空"}
+                    {configuredLlm ? localizeMessage("已保存，留空沿用") : localizeMessage("本地模型服务可留空")}
                   </small>
                 </span>
                 <input
                   type="password"
                   value={llmKey}
                   onChange={(event) => setLlmKey(event.target.value)}
-                  placeholder={configuredLlm ? "已保存" : "输入 API Key"}
+                  placeholder={configuredLlm ? localizeMessage("已保存") : localizeMessage("输入 API Key")}
                   autoComplete="new-password"
                 />
               </label>
-              <p className="text-note">
-                启用后，生成摘要会将对应帖子的文本发送到你配置的服务。
-              </p>
+              <p className="text-note">{localizeMessage("启用后，生成摘要会将对应帖子的文本发送到你配置的服务。")}</p>
             </div>
           </section>
           <div className="settings-save-row">
@@ -2401,40 +2360,38 @@ function SettingsPage({
                 <LoaderCircle className="spin" size={16} />
               ) : (
                 <Check size={16} />
-              )}
-              保存设置
-            </button>
+              )}{localizeMessage("保存设置")}</button>
           </div>
         </div>
       ) : (
         <div className="settings-content">
           <section className="connection-panel preset-panel">
             <div className="connection-heading">
-              <div><h2>财经来源预设</h2><p>加入公开财经 RSS；已有来源的名称、地址和启停状态会保留。</p></div>
-              {presets?.feeds?.length ? <button className="secondary-button" disabled={!!busy} onClick={() => addPresets(presets.feeds)}><Plus size={15} />加入全部</button> : null}
+              <div><h2>{localizeMessage("财经来源预设")}</h2><p>{localizeMessage("加入公开财经 RSS；已有来源的名称、地址和启停状态会保留。")}</p></div>
+              {presets?.feeds?.length ? <button className="secondary-button" disabled={!!busy} onClick={() => addPresets(presets.feeds)}><Plus size={15} />{localizeMessage("加入全部")}</button> : null}
             </div>
             <div className="connection-body">
-              {presetsLoading && <p className="text-note" role="status"><LoaderCircle size={14} className="spin" /> 正在读取财经来源…</p>}
-              {presetsError && <div className="inline-error" role="alert"><p>财经预设未能加载：{presetsError}</p><button className="text-button" onClick={() => void loadPresets()}>重试读取</button></div>}
-              {!presetsLoading && !presetsError && !presets?.feeds?.length && <p className="text-note">暂无预设来源；可以在下方手动添加 RSS。</p>}
+              {presetsLoading && <p className="text-note" role="status"><LoaderCircle size={14} className="spin" />{localizeMessage("正在读取财经来源…")}</p>}
+              {presetsError && <div className="inline-error" role="alert"><p>{localizeMessage("财经预设未能加载：")}{localizeMessage(presetsError)}</p><button className="text-button" onClick={() => void loadPresets()}>{localizeMessage("重试读取")}</button></div>}
+              {!presetsLoading && !presetsError && !presets?.feeds?.length && <p className="text-note">{localizeMessage("暂无预设来源；可以在下方手动添加 RSS。")}</p>}
               <div className="preset-list">
                 {(presets?.feeds || []).map((feed) => {
                   const existing = draft.rss_feeds.some((current) => (webUrl(current.url) || current.url) === (webUrl(feed.url) || feed.url));
                   return <div className="preset-row" key={feed.id}>
-                    <div><strong>{feed.name}</strong>{feed.category && <span className="preset-category">{feed.category}</span>}{!feed.enabled && <span className="preset-category">默认未启用</span>}<small>{feed.url}</small>
-                      {feed.description && <p className="text-note">{feed.description}</p>}
-                      {!!feed.requires?.length && <p className="text-note">使用要求：{sourceRequirements(feed.requires)}</p>}
+                    <div><strong>{feed.name}</strong>{feed.category && <span className="preset-category">{feed.category}</span>}{!feed.enabled && <span className="preset-category">{localizeMessage("默认未启用")}</span>}<small>{feed.url}</small>
+                      {feed.description && <p className="text-note">{localizeMessage(feed.description)}</p>}
+                      {!!feed.requires?.length && <p className="text-note">{localizeMessage("使用要求：")}{sourceRequirements(feed.requires)}</p>}
                     </div>
-                    <button className="text-button" disabled={existing || !!busy} onClick={() => addPresets([feed])}>{existing ? "已添加" : "加入订阅"}</button>
+                    <button className="text-button" disabled={existing || !!busy} onClick={() => addPresets([feed])}>{existing ? localizeMessage("已添加") : localizeMessage("加入订阅")}</button>
                   </div>;
                 })}
               </div>
-              {!!presets?.rsshub_routes?.length && <details className="rsshub-route-notes"><summary>RSSHub 财经路由参考</summary><p className="text-note">需要自行运行实例并验证具体路由；本人首页与登录会话尚未验证。</p>
+              {!!presets?.rsshub_routes?.length && <details className="rsshub-route-notes"><summary>{localizeMessage("RSSHub 财经路由参考")}</summary><p className="text-note">{localizeMessage("需要自行运行实例并验证具体路由；本人首页与登录会话尚未验证。")}</p>
                 <ul>{presets.rsshub_routes.map((route, index) => <li key={route.id || index}>
-                  <strong>{route.name}</strong>
+                  <strong>{localizeMessage(route.name)}</strong>
                   {(route.path || route.route || route.url) && <code>{route.path || route.route || route.url}</code>}
-                  {route.description && <p>{route.description}</p>}
-                  <p>使用要求：{route.requires?.length ? sourceRequirements(route.requires) : "预设无额外配置要求"}</p>
+                  {route.description && <p>{localizeMessage(route.description)}</p>}
+                  <p>{localizeMessage("使用要求：")}{route.requires?.length ? sourceRequirements(route.requires) : localizeMessage("预设无额外配置要求")}</p>
                 </li>)}</ul>
               </details>}
             </div>
@@ -2442,8 +2399,8 @@ function SettingsPage({
           <section className="connection-panel">
             <div className="connection-heading">
               <div>
-                <h2>订阅来源</h2>
-                <p>公开新闻、机构公告和博客。加入、启停或移除后，点击“保存来源”。</p>
+                <h2>{localizeMessage("订阅来源")}</h2>
+                <p>{localizeMessage("公开新闻、机构公告和博客。加入、启停或移除后，点击“保存来源”。")}</p>
               </div>
             </div>
             <div className="feed-settings-list">
@@ -2473,7 +2430,7 @@ function SettingsPage({
                   <button
                     className="icon-button"
                     disabled={!!busy}
-                    aria-label={`移除 ${feed.name}`}
+                    aria-label={t(`移除 ${feed.name}`, `Remove ${feed.name}`)}
                     onClick={() =>
                       updateDraft(
                         "rss_feeds",
@@ -2489,15 +2446,15 @@ function SettingsPage({
             <div className="connection-body">
               <div className="form-grid">
                 <label className="field">
-                  <span>来源名称</span>
+                  <span>{localizeMessage("来源名称")}</span>
                   <input
                     value={newFeedName}
                     onChange={(event) => setNewFeedName(event.target.value)}
-                    placeholder="例如：研究博客"
+                    placeholder={localizeMessage("例如：研究博客")}
                   />
                 </label>
                 <label className="field">
-                  <span>RSS / Atom 地址</span>
+                  <span>{localizeMessage("RSS / Atom 地址")}</span>
                   <input
                     type="url"
                     value={newFeedUrl}
@@ -2515,7 +2472,7 @@ function SettingsPage({
                     if (!["https:", "http:"].includes(url.protocol))
                       throw new Error();
                     if (draft.rss_feeds.some((feed) => (webUrl(feed.url) || feed.url) === url.href)) {
-                      tell("这个 RSS 地址已在列表中；请直接启用现有来源。");
+                      tell(localizeMessage("这个 RSS 地址已在列表中；请直接启用现有来源。"));
                       return;
                     }
                     updateDraft("rss_feeds", [
@@ -2530,13 +2487,11 @@ function SettingsPage({
                     setNewFeedName("");
                     setNewFeedUrl("");
                   } catch {
-                    tell("请输入有效的 http 或 https RSS 地址。");
+                    tell(localizeMessage("请输入有效的 http 或 https RSS 地址。"));
                   }
                 }}
               >
-                <Plus size={16} />
-                添加来源
-              </button>
+                <Plus size={16} />{localizeMessage("添加来源")}</button>
             </div>
           </section>
           <div className="settings-save-row">
@@ -2545,9 +2500,7 @@ function SettingsPage({
               disabled={!!busy}
               onClick={() => void perform("save-feeds", saveDraft)}
             >
-              <Check size={16} />
-              保存来源
-            </button>
+              <Check size={16} />{localizeMessage("保存来源")}</button>
           </div>
         </div>
       )}
@@ -2572,12 +2525,12 @@ function ConnectionBadge({
         <span className="status-dot" />
       )}
       {state === "connected"
-        ? username || "已连接"
+        ? username || localizeMessage("已连接")
         : state === "connecting"
-          ? "连接中"
+          ? localizeMessage("连接中")
           : state === "error"
-            ? "需要检查"
-            : "未连接"}
+            ? localizeMessage("需要检查")
+            : localizeMessage("未连接")}
     </span>
   );
 }

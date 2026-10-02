@@ -46,6 +46,7 @@ export interface Post {
     summary: string;
     language: "zh";
     model: string;
+    cache_key?: string;
     translated_at: string;
     source_hash: string;
   } | null;
@@ -54,6 +55,16 @@ export interface TranslationStatus {
   configured: boolean;
   model: string;
   message: string;
+  cache_key?: string;
+  error_code?: string | null;
+}
+export interface TranslationConfig extends TranslationStatus {
+  source: "local" | "environment" | "none";
+  base_url: string;
+  api_key_set: boolean;
+  local_api_key_set: boolean;
+  environment_available: boolean;
+  security_note: string;
 }
 export interface TranslationJob {
   id: string;

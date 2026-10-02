@@ -1,147 +1,148 @@
-# 交易雷达 · Market Radar
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-本地运行的个人交易信息台。输入关键词，从公开新闻、财经 RSS、X、Reddit 收集信息；连接自己的账号后，独立整理关注内容和推荐信息。新增自选行情、K 线和可解释规则事件，与已有资讯按标的和时间关联。内容保留原链接，支持阅读、中文翻译、收藏与导出。
+# Market Radar
 
-当前版本 **0.3**：新增独立的只读行情通道，支持加密现货小时线及美股、港股、沪深股票日线。自选列表初始为空，添加后手动刷新；行情、质量标记、历史规则事件和任务单独持久保存。原有新闻、社交与中文阅读能力保留。变更及本轮验证范围见 [0.3 升级说明](docs/UPGRADE_0_3.md)，此前能力见 [0.2 升级说明](docs/UPGRADE_0_2.md)。
+A local workspace for market research. Search public news and social posts, organize your own X or Reddit feeds, and inspect price and volume signals alongside related news. Every collected item keeps its original source link.
 
-[市场数据研究](docs/MARKET_DATA_RESEARCH.md) 保留实施前的候选分析；当前采用的范围以 0.3 升级说明为准。[11 个行情参考快照](docs/MARKET_DATA_REFERENCE_SNAPSHOTS.json) 单独保存在开发 workspace 的 reference 目录，不作为运行时源码导入。
+The interface starts in **English** and can switch to **简体中文**. Source text stays in its original language by default; Chinese reading uses your configured LLM API and keeps the originals intact.
 
-## 启动
+Current release: **0.4**. See the [release notes](docs/UPGRADE_0_4.md) for bilingual reading and personal translation APIs, and [0.3](docs/UPGRADE_0_3.md) for the market-data implementation.
 
-环境：macOS/Linux、Node.js 22.12+、[uv](https://docs.astral.sh/uv/getting-started/installation/)。Python 3.12 由 uv 管理。
+## Run locally
+
+Requirements: macOS or Linux, **Node.js 22.12+** with npm, and [uv](https://docs.astral.sh/uv/getting-started/installation/). Setup creates a Python 3.12 environment, installs the locked dependencies and the isolated browser used for X login, and builds the frontend.
 
 ```bash
 git clone https://github.com/EthanAlgoX/market-radar.git
 cd market-radar
-./setup.sh    # 首次安装
-./start.sh    # 或 npm start
+./setup.sh
+./start.sh
 ```
 
-浏览器打开 **http://localhost:8787**。macOS 可双击 `start.command`。停止时在终端按 `Ctrl+C`。
+Open **[http://localhost:8787](http://localhost:8787)**. After the first setup, use `./start.sh` or `npm start` for subsequent runs. On macOS, you can also double-click `start.command`. Press `Ctrl+C` in the terminal to stop the service.
 
-首次克隆后先运行 `./setup.sh`；安装完成后，日常使用只需启动。所有服务绑定本机 `127.0.0.1`。请使用 localhost / 127.0.0.1 访问，以便账号回调和浏览器来源校验正常工作。
+The service binds to `127.0.0.1`. Use `localhost` or `127.0.0.1` so that account callbacks and browser-origin checks work correctly.
 
-开发模式：`npm run dev`，前端 http://localhost:5173，后端 8787；前后端均自动重载。
+## Start researching
 
-## 已实现
+1. **Search news.** Enter a keyword or choose a market topic: macro, crypto, US stocks, Hong Kong stocks, China A-shares, finance or gold. Queries support phrases, parentheses, `OR`, `AND` and `NOT`, with English/Chinese financial aliases.
+2. **Build a watchlist.** Open the market workspace, add a symbol such as `BTC/USDT`, `AAPL`, `0700.HK` or `600519.SS`, then refresh to fetch candles.
+3. **Connect your feeds.** Open Settings to connect your own X or Reddit account, manage followed authors, and add public RSS feeds.
+4. **Choose a language.** Switch the interface to Chinese without an API. Configure a translation provider in Settings to read collected articles and posts in Chinese.
 
-- 关键词跨源采集：Google News RSS 搜索、财经 RSS、X、Reddit；可选 Hacker News 和外部 RSSHub。
-- 交易主题：宏观、加密货币、美股、港股、A 股、财经、黄金；支持中英财经别名、`OR` / `AND` / `NOT`、括号和引号短语，也可输入任意查询。
-- 三个独立频道：关键词资讯、我的关注、为我推荐。同一帖子可以同时出现在多个频道。
-- 关注信息不强制命中关键词；指定作者的投稿独立收录。
-- 标题、作者、正文/摘录、摘要、语言、发布时间、命中词和原链接，SQLite 本地保存；RSS 优先保留来源返回的完整内容和段落。
-- 平台 ID、RSS GUID / Atom ID 与保守链接规范化去重；同一条内容保留各来源的收录记录、查询和原链接，不按相似标题合并。
-- 收藏、已读、本地文本筛选、排序和 JSON/CSV 导出；平台互动数据只用于阅读排序，不代表新闻可信度或交易信号。
-- 任务持久排队、重复请求复用和重启恢复。不同来源并行采集，同一来源串行，并有并发上限、限速、超时和有限重试；失败、部分完成和采集范围逐项显示。
-- RSS 支持 ETag / Last-Modified 条件请求；收到 `304` 时重放持久缓存中的整个订阅窗口，再按当前查询筛选。
-- 财经来源预设与可选 RSSHub 路由；在阅读面板按需读取公开文章正文，或加载 Reddit / Hacker News 的部分评论。
-- 未连接、验证失败或会话失效的账号分别显示真实状态；部分来源失败时仍保存成功结果。
-- 可选自动刷新与兼容 API 的 AI 中文摘要。AI 默认关闭，无密钥也能使用原文摘录。
-- 一键中文阅读：使用环境中的 DeepSeek Flash 翻译标题、摘要与已采集正文，缓存译文并保留原始内容。
+## News and social feeds
 
-## 行情与信号
+| Channel | What it collects |
+| --- | --- |
+| Keyword research | Google News RSS search, financial RSS, and connected X/Reddit sources; Hacker News and an external RSSHub instance are also supported |
+| Following | Followed-account content and enabled subscriptions, without requiring a keyword match |
+| Recommendations | Your connected X For You feed or Reddit's OAuth `best` homepage |
 
-美股与港股会核对来源资产类型、币种和时区。首版接受股票及 ETF，美股计价 USD、港股计价 HKD；无法确认或不匹配时明确拒绝采集。
+These channels remain independent: an item can belong to more than one channel. Collection coverage is bounded by each provider's API, pagination, request and time limits; the app shows failures and partial results.
 
-进入「行情与信号」，从候选预设或手动输入添加自选，随后点击刷新。最多 20 个标的，每次获取约 180 根 K 线；不因打开页面或添加标的自动访问行情来源。
+- Read titles, source text, excerpts, publication times, matched terms and collection provenance. Open the original link at any time.
+- Filter and sort saved items, mark them read, bookmark them, and export JSON or CSV.
+- Fetch accessible article text on demand, or load a limited set of Reddit/Hacker News comments in the reading panel.
+- Deduplicate by platform IDs, feed IDs and conservative URL normalization. Similar headlines are not automatically merged into a single news event.
+- Keep durable collection jobs and cached RSS responses. Failed sources do not discard successful results; interrupted jobs resume after a restart.
 
-| 市场 | 当前来源与范围 | 数据口径 |
+New installations include feeds from the Federal Reserve, ECB, CoinDesk, Yahoo Finance, CNBC Finance and HKEX. Existing subscriptions are preserved. Optional scheduled news refresh runs only while the local service is running; market refresh remains manual. AI summaries are optional and are configured separately from content translation.
+
+## Market data and signals
+
+The watchlist starts empty, supports up to **20 symbols**, and fetches data only when you request a refresh. The chart shows up to **180 candles**, volume, MA20/MA60, and historical rule events.
+
+| Market | Provider and supported scope | Data convention |
 | --- | --- | --- |
-| 加密现货 | Binance 固定公开 REST，USDT 交易对，1 小时线 | 保存原始闭合时间、服务器时间、基础资产量与报价资产量；不是合约行情 |
-| 美股、港股 | yfinance / Yahoo，常规交易时段日线 | 保存 Yahoo 原始返回，不额外 `auto_adjust`，不开启 `repair`；保留拆股、分红和空值 |
-| 沪深股票 | AKShare / 东方财富，原始日线 | 不请求前后复权；成交量单位为手，无法核实公司事件时对异常大幅变动保守标记 |
+| Crypto | Binance public REST; USDT spot pairs, 1-hour candles | Source close time and server clock; base and quote volume preserved |
+| US / Hong Kong | yfinance / Yahoo; stocks and ETFs, daily regular-session candles | Provider prices retained with `auto_adjust=False` and `repair=False`; dividends, splits and null values preserved |
+| China A-shares | AKShare / Eastmoney; Shanghai and Shenzhen stocks, daily candles | No requested price adjustment; volume reported in lots of 100 shares |
 
-图表展示 K 线、成交量、MA20 / MA60 和历史规则事件。默认规则为 20 根区间突破、MA20 / MA60 穿越和成交量放大；指标计算层另提供 RSI14，阈值穿越规则默认关闭；当前页面没有规则配置入口。缺失、未闭合、样本不足或质量不合格的窗口不产生正式事件，也不以零或替代均线补足指标。
+US and Hong Kong instruments are checked against the provider's asset type, currency and timezone. This implementation accepts USD-priced US equities/ETFs and HKD-priced Hong Kong equities/ETFs.
 
-股票闭合与新鲜度依据交易所日历、时区和收盘后缓冲判断；加密依据来源服务器时钟。数据接收时间单独记录，不冒充行情更新时间。不同来源、币种、复权、单位或交易时段不会拼入同一序列。公司事件和缺口会重新开始指标预热。
+Default events cover 20-bar range breakouts, MA20/MA60 crossovers and volume expansion. Each event includes its rule parameters, numerical evidence, source and timestamps. RSI14 is available in the calculation layer, but its threshold rule is disabled by default and has no configuration control in the current interface.
 
-行情任务由一个独立本地 worker 执行，有队列、重复请求复用、超时和有限重试；股票 SDK 在可终止的独立进程中请求。失败会显示来源错误并保留旧图与历史事件。内部可读取最多 240 根已保存上下文，保护图表 180 根窗口前沿的预热；真实修订会保留审计记录并重新确认或撤回事件，窗口不足时标记待重验。
+Events require enough valid, closed candles. Missing values, unfinished candles, gaps and corporate actions stay visible; the app does not fill missing prices with zero or substitute an insufficient moving average. Exchange calendars, timezones and a post-close buffer determine stock closure and freshness; crypto uses the source server clock. Data receipt time is recorded separately from the candle's market time.
 
-同期资讯来自已保存内容的安全实体匹配，最多 8 条，并注明时间窗口；关联不代表价格变化因果。可直接进入原有阅读面板或切换中文。行情通道没有回测、下单、券商登录、实时订阅或完整历史回补，也没有安装 CCXT 作为运行依赖。
+The analysis can use up to 240 saved candles for warmup. Stock refreshes fetch the warmup and visible window together, reducing the risk of mixing revised prices with an older cache. Data revisions are audited, and affected events are reconfirmed, withdrawn or marked for revalidation. Source failures retain saved charts and show their historical status.
 
-## 连接 X
+Up to eight related items are matched from the existing local news library within a stated time window. This association is a research aid, not evidence that a news item caused a price move. The current scope is finite public-data snapshots and rule events; it does not include full historical backfill, streaming prices, backtesting or trade execution. Public providers can be unavailable or return incomplete data; inspect the displayed quality and freshness status before using a window.
 
-进入「来源与账号」→「在浏览器登录 X」。程序新建隔离浏览器窗口，由你直接在 X 完成登录；本站不收取 X 密码，也不读取已有浏览器个人资料。验证账号身份成功后，才标记已连接。
+## Language and translation
 
-已实现关键词搜索、本人 Following、For You、作者时间线和同步关注名单的接入路径。同步名单后仍读取本人 Following，再补充作者投稿；关注频道不按研究关键词过滤。可在「关键词与加工」编辑作者名单。采集受分页、条数、请求次数和时间预算限制，达到上限会标记范围有限；尚无完整历史分页回补。
+Interface language and source-content translation have different requirements:
 
-若浏览器登录不可用，可展开「使用已有登录会话」，导入你自己的 Cookie JSON（需要 `auth_token` 与 `ct0`）。会话过期、网络失败、平台限制会显示需检查；平台的非官方接口可能变化，Twikit 无法保证永久可用。断开连接可清除本机保存的会话。
+- **English / 简体中文 interface:** local UI text switches without contacting an LLM. English is the default; the browser remembers your choice.
+- **Chinese source content:** configure an API base URL, API key and model in **Settings → Translation**. The default is DeepSeek Flash (`deepseek-flash`); a custom OpenAI-compatible Chat Completions provider and model can also be used. If no provider is configured, the app points you to Settings and retains the original text.
 
-本次开发未使用真实个人 X 账号，连接与时间线行为以离线模拟验证；登录后的实际连通性、覆盖范围及推荐结果仍需本人授权后验证。
+Translation covers collected titles, summaries and bodies, including related market news. It does not translate your query, source URLs or identifiers. Translations are cached locally by original-text revision, provider and model, so unchanged content can reuse its result. Errors retain the original and offer a retry; incomplete outputs are not saved as completed translations. Text being translated is sent to the API provider you configure.
 
-## 连接 Reddit
+Saved API settings take effect immediately. When Chinese reading is enabled, pending items translate automatically. Removing a local override restores any available environment configuration. Changing the provider URL requires that provider's API key.
 
-需要已经获 Reddit API 访问权限的应用。前往 [Reddit 应用设置](https://www.reddit.com/prefs/apps)，将回调地址设为：
+API keys entered in Settings are encrypted locally and are not returned to the browser. Environment configuration remains available as a fallback. For a new installation, create a project-root `.env` from [.env.example](.env.example); if `.env` already exists, edit it rather than replacing it.
+
+```dotenv
+DEEPSEEK_API_KEY=your-deepseek-api-key
+DEEPSEEK_API_BASE=https://api.deepseek.com
+DEEPSEEK_FLASH_MODEL=deepseek-flash
+```
+
+`DEEPSEEK_BASE_URL` is also accepted as a base-URL alias. Existing terminal environment variables take precedence over `.env`. Restart the local service after changing environment configuration. Keep `.env` private; it is excluded from Git.
+
+## Connect your accounts
+
+### X
+
+Use the browser-login action in Settings. It opens an isolated browser window where you sign in directly to X; Market Radar does not receive your password or reuse your normal browser profile. The connection is marked ready only after account identity verification.
+
+The connector supports keyword search, Following, For You, author timelines and following-list synchronization. You can also enter specific authors, whose posts are collected without a keyword requirement. If browser login is unavailable, import your own Cookie JSON containing `auth_token` and `ct0`. Disconnecting clears the locally saved session.
+
+X access uses Twikit's unofficial session interface. Platform changes, expired sessions and provider restrictions can affect availability. Real personal-account coverage and recommendation parity are not guaranteed; the project's account paths have been validated with offline responses rather than a developer's personal account.
+
+### Reddit
+
+You need an application that has Reddit API access. In [Reddit application settings](https://www.reddit.com/prefs/apps), set this callback:
 
 ```text
 http://localhost:8787/api/connections/reddit/callback
 ```
 
-在本站填写 Client ID 和 Client Secret（installed app 可留空），点击「登录并授权 Reddit」。授权仅请求读取所需的 scopes，refresh token 加密保存于本机。
+Enter the Client ID and Client Secret in Settings; installed apps may leave the secret empty. Sign in and authorize read access. The refresh token is encrypted locally.
 
-已实现关键词搜索、订阅社区、作者投稿和账号 API 首页的接入路径。同步订阅可以读取社区及 API 可见的用户订阅；API 并不能保证提供完整的网页关注名单。可在设置中补充作者用户名，主动收录其社区投稿；关注频道不按研究关键词过滤。推荐频道使用 OAuth `best` 列表，与 Reddit 网页个性化推荐可能不同。采集有请求与分页预算，尚无完整历史分页回补；评论在阅读时按需加载，数量有限。
+The connector supports search, subscribed communities, specified authors and the API homepage. Synchronization retrieves subscriptions exposed by the API and may not reproduce the full website following list. Recommendations use OAuth `best`, which can differ from the website's personalized feed. Logging in to Reddit does not itself grant developer API access.
 
-网站登录不等于获得 Reddit 开发者访问权限。真实个人账号连接需要你授权，项目开发验证未使用任何个人账号。
+An external RSSHub instance is optional. Add its full feed URLs as RSS subscriptions. Routes that need account cookies must be configured on that instance; use an isolated personal instance for account timelines.
 
-## 公开 RSS 与加工
-
-页面右上角提供「一键切换中文」。点击后使用后端环境中的 DeepSeek Flash（`deepseek-flash`）翻译资讯标题、摘要和来源返回的全文；切换主题、搜索或加载更多时会继续翻译新增内容。模式会在浏览器保存，可随时点击「切回原文」。来源、作者、原链接和你输入的关键词保留原样。
-
-译文单独缓存在本机，原始内容不改写。缓存绑定原文版本和模型，相同内容不会重复请求；失败时保留原文、明确标识并提供重试。长文本分片完整翻译，超出支持上限或结果被截断时不会保存不完整译文。
-
-翻译配置来自环境变量 `DEEPSEEK_API_KEY`、`DEEPSEEK_API_BASE`（也支持 `DEEPSEEK_BASE_URL`）。密钥仅供后端使用，不返回浏览器。模型默认为 `deepseek-flash`，如需其他 Flash 名称可设置 `DEEPSEEK_FLASH_MODEL`。启动脚本也支持项目根目录的 `.env`；可参考 `.env.example`，终端已有变量优先。配置更新后需重启后端。
-
-翻译会将对应资讯文本发送到你配置的 DeepSeek 服务。默认正文来自来源返回的内容。新闻 / RSS 阅读面板中的「读取文章正文」会按需请求公开 HTML，并使用 Trafilatura 提取正文；不绕过登录或付费墙，也不保证每个网站可提取。Google News 链接若仍停留在聚合页，会提示打开原文。失败时保留已有摘录和链接；取得正文后可继续翻译。
-
-新安装默认来源为美联储、欧洲央行、CoinDesk、Yahoo Finance、CNBC Finance 和港交所新闻稿；已有订阅配置不会自动替换。「来源与账号」提供财经来源预设，也可增删启用公开 RSS / Atom 地址。SEC 预设默认关闭，需单独满足来源访问要求并验证可用性。Google News 可配置语言 / 地区，返回聚合跳转链接；本站记录研究查询及实际发送的来源查询。各网站覆盖范围、更新频率和搜索语法不同，结果不是全网穷尽。
-
-例如 `黄金 OR 美联储` 会展开相应中英别名；`黄金 AND NOT 白银` 可用于排除相关内容。英文词按边界匹配，避免把 `Goldman` 误归为 `gold`。不同平台使用不同查询语法，实际查询可在采集进度和「收录与来源」中查看。当前去重仅依据明确身份或链接，没有基于语义的新闻事件聚类。
-
-主题按文本规则分类，摘要默认是来源文本摘录。若启用 AI，可配置兼容 Chat Completions 的 API 地址、模型和密钥，然后在阅读面板点击生成摘要；对应文本会发送到你配置的服务。AI 不用于生成新闻、价格或虚构数据。
-
-资讯自动更新默认关闭。开启后只在本地服务运行期间生效，并分别收集关键词、已连接账号关注和推荐信息；行情仍需手动刷新。
-
-RSSHub 是可选独立服务。在账号页填入可信实例地址后，可参考财经路由，将完整订阅 URL 添加为 RSS 来源；部分路由需要实例侧的浏览器运行时或本人 Cookie。显式配置的本机 RSSHub 仅在其地址与路径范围内允许访问，不会放开其他私网地址。`/twitter/home_latest` 与 `/twitter/home` 需要在 RSSHub 侧配置本人 X 会话；本站不能自动证明其服务端会话属于本人，账号时间线应使用隔离的个人实例。本项目不自动运行所有参考仓库。
-
-## 文件与数据
-
-```text
-market-radar/
-  frontend/             React + TypeScript + Vite
-  backend/app/          FastAPI、资讯采集器、SQLite、会话存储
-  backend/app/market/   独立行情适配、队列、存储、规则与 API
-  backend/tests/        离线采集与API/数据/安全回归测试
-  backend/data/         本地数据库、加密凭据、密钥（不进入 Git）
-  scripts/run.mjs       前后端启动与退出管理
-  docs/REFERENCES.md    开源参考与实际依赖说明
-  docs/REFERENCE_SNAPSHOTS.json  13 个参考仓库的精确版本清单
-  docs/SOURCE_RESEARCH.md  0.2 开发前的来源评估基线
-  docs/UPGRADE_0_2.md    0.2 历史功能与验证记录
-  docs/UPGRADE_0_3.md    0.3 行情通道、范围与验证记录
-  docs/MARKET_DATA_RESEARCH.md  0.3 实施前的行情研究基线
-  docs/MARKET_DATA_REFERENCE_SNAPSHOTS.json  11 个行情参考快照
-```
-
-实际运行依赖为 React / TypeScript / Vite 前端与 FastAPI / Uvicorn 后端；HTTPX、Feedparser 用于公开源，Twikit / PRAW 用于 X / Reddit，Playwright 用于隔离登录浏览器，Trafilatura 用于按需正文提取，Cryptography 用于本机会话加密。0.3 新增 AKShare、yfinance、exchange_calendars、NumPy、TA-Lib 和 Lightweight Charts；精确安装版本由 lockfile 记录。数据与任务保存在 SQLite，无需部署消息队列或参考平台。
-
-资讯继续使用 `market-radar.sqlite3`，行情使用独立 `market-radar-market.sqlite3`。停止本地服务后备份整个数据目录，同时保留两个数据库、相应 WAL 文件和会话加密密钥。
-
-`RADAR_DATA_DIR` 可覆盖数据目录，需在启动前设置环境变量。密钥和密文保存在同一电脑，保护的是磁盘文件和误上传，不是抵御已控制本机的攻击者。迁移或备份时要同时保留密钥；不要把 `backend/data` 或个人会话放进公开仓库。
-
-## 验证与接口
+## Development and local data
 
 ```bash
-npm run check
-npm run build
-npm test
+npm run dev      # frontend :5173, backend :8787, both reload on changes
+npm run check    # TypeScript
+npm run build    # production frontend
+npm test         # backend and frontend regression tests
 ```
 
-API 文档 http://localhost:8787/docs，健康检查 `/health`。导出入口 `/api/export?format=json` 或 `format=csv`。接口限制本机 Host 和来源，公开 RSS 请求校验地址和重定向，不允许访问私网；显式配置的本机 RSSHub 例外。
+API documentation: [http://localhost:8787/docs](http://localhost:8787/docs). Health check: `/health`. Market API: `/api/market`. Export: `/api/export?format=json` or `format=csv`.
 
-**0.2 历史验证**：公开查询 `黄金 OR 美联储` 收到 47 条、新增 33 条；再次运行新增 0 条。当时升级前的 137 条资讯与 60 条翻译缓存记录保留。该结果不是 0.3 本轮迁移计数。
+```text
+frontend/           React, TypeScript, Vite, Lightweight Charts
+backend/app/        FastAPI, news/social collectors, credential storage
+backend/app/market/ Market adapters, queue, quality checks, rules and API
+backend/tests/      Backend regression tests
+backend/data/       Local databases and encrypted credentials; excluded from Git
+scripts/run.mjs     Local service lifecycle and .env loading
+docs/               Release notes, research, references and validation records
+```
 
-**0.3 本轮行情样本**：隔离服务通过实际行情 API 分别获取 BTC/USDT、AAPL、0700.HK、600519.SS 各 180 根；未闭合行、公司事件和港股空值均保留并标记。结果只说明本次有限窗口可用，不证明所有标的、完整历史或长期稳定性。详细结果及构建、界面、迁移的验证状态见 [0.3 升级说明](docs/UPGRADE_0_3.md)。
+News uses `market-radar.sqlite3`; market data uses `market-radar-market.sqlite3`. Set `RADAR_DATA_DIR` before startup to choose another data directory. Stop the service before backing up the entire data directory, including any WAL files and the credential-encryption key. Keep that key with encrypted credentials when migrating to another machine. The app assumes one local user and one backend process.
 
-X / Reddit 连接、分页、授权、断开和错误处理以离线模拟验证，尚未验证真实个人账号。任务恢复适用于本地单后端进程，不是分布式任务系统。行情接口位于 `/api/market`；获取总览不会自动采集上游行情。
+## References and implementation notes
 
-参考仓库、固定版本和许可证详见 [docs/REFERENCES.md](docs/REFERENCES.md)。参考源码在开发时单独保存，不随本仓库上传，也不需要下载它们来运行本项目。本项目通过安装包调用 Twikit / PRAW 和行情库，未把上游 GPL/AGPL 平台源码合并进来。图表保留 TradingView 标识、链接与许可证文件；新增运行组件的许可说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+Market Radar is an independent application using installed libraries, rather than a deployment of every reference platform. The runtime includes PRAW, Twikit, yfinance, AKShare, exchange_calendars, NumPy, TA-Lib and Lightweight Charts; exact package versions are recorded in the lockfiles. CCXT and the larger aggregation/trading platforms are research references, not runtime services.
+
+- [Reference projects and actual reuse](docs/REFERENCES.md)
+- [Market-data research](docs/MARKET_DATA_RESEARCH.md) and [source research](docs/SOURCE_RESEARCH.md)
+- [0.3 release notes](docs/UPGRADE_0_3.md), [0.2 release notes](docs/UPGRADE_0_2.md), and [validation record](docs/TESTING.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
+
+Reference source checkouts are kept separately in the development workspace and are not needed to run this repository. The chart retains the required TradingView attribution, links and license notices. Historical research and test records describe their own validation dates and may be written in Chinese.

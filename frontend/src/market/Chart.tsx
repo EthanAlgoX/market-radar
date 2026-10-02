@@ -18,6 +18,7 @@ import {
   type UTCTimestamp,
   type WhitespaceData,
 } from "lightweight-charts";
+import { localeCode, t, useLocale } from "../i18n";
 import type { MarketCandle, MarketIndicators, MarketSignal } from "./types";
 
 export interface ChartProps {
@@ -59,11 +60,6 @@ type ChartInstance = {
   dataset: string | null;
 };
 
-const priceFormatter = new Intl.NumberFormat("zh-CN", { maximumSignificantDigits: 9 });
-const volumeFormatter = new Intl.NumberFormat("zh-CN", { maximumSignificantDigits: 6 });
-const utcFormatter = new Intl.DateTimeFormat("zh-CN", {
-  timeZone: "UTC", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
-});
 
 function utcTime(value: string): UTCTimestamp | null {
   // Reject ambiguous local timestamps instead of shifting market bars by the viewer's timezone.
@@ -113,14 +109,17 @@ function readPalette(container: HTMLElement): Palette {
 }
 
 function dateLabel(time: UTCTimestamp): string {
-  return `${utcFormatter.format(new Date(time * 1000))} UTC`;
+  return `${new Intl.DateTimeFormat(localeCode(), { timeZone: "UTC", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(time * 1000))} UTC`;
 }
 
 function candleStatus(candle: MarketCandle): string {
-  return candle.closed ? "已收盘" : "盘中 · 未收盘";
+  return candle.closed ? t("已收盘", "Closed") : t("盘中 · 未收盘", "Intraday · Open");
 }
 
 export default function Chart({ candles, signals, indicators, currency, volumeUnit }: ChartProps) {
+  const { locale } = useLocale();
+  const priceFormatter = useMemo(() => new Intl.NumberFormat(localeCode(), { maximumSignificantDigits: 9 }), [locale]);
+  const volumeFormatter = useMemo(() => new Intl.NumberFormat(localeCode(), { maximumSignificantDigits: 6 }), [locale]);
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<ChartInstance | null>(null);
   const summaryId = useId();
@@ -135,7 +134,7 @@ export default function Chart({ candles, signals, indicators, currency, volumeUn
   const hasOpen = rows.some(row => !row.source.closed);
   const missingVolume = timeline.filter(row => !finite(row.source.volume) || row.source.volume < 0).length;
   const priceUnit = currency || latest?.source.currency || "";
-  const quantityUnit = volumeUnit || latest?.source.volume_unit || "来源未注明单位";
+  const quantityUnit = volumeUnit || latest?.source.volume_unit || t("来源未注明单位", "Unit not specified by source");
 
   const confirmedSignals = useMemo(() => {
     const closedTimes = new Set(rows.filter(row => row.source.closed).map(row => row.time));
@@ -167,7 +166,7 @@ export default function Chart({ candles, signals, indicators, currency, volumeUn
         rightPriceScale: { borderColor: colors.line, minimumWidth: 70 },
         timeScale: { borderColor: colors.line, timeVisible: true, secondsVisible: false, rightOffset: 5 },
         localization: {
-          locale: "zh-CN", priceFormatter: (value: number) => priceFormatter.format(value),
+          locale: localeCode(), priceFormatter: (value: number) => priceFormatter.format(value),
           timeFormatter: (time: Time) => typeof time === "number" ? dateLabel(time as UTCTimestamp) : String(time),
         },
       });
@@ -202,7 +201,10 @@ export default function Chart({ candles, signals, indicators, currency, volumeUn
     instance.chart.subscribeCrosshairMove(onCrosshair);
     const resize = new ResizeObserver(() => {
       if (container.clientWidth > 0 && container.clientHeight > 0) {
+        const range = instance.chart.timeScale().getVisibleLogicalRange();
         instance.chart.resize(container.clientWidth, container.clientHeight);
+        // Preserve the viewed candle window, rather than narrow-screen bar spacing.
+        if (range) instance.chart.timeScale().setVisibleLogicalRange(range);
       }
     });
     resize.observe(container);
@@ -229,10 +231,12 @@ export default function Chart({ candles, signals, indicators, currency, volumeUn
       },
       grid: { horzLines: { color: palette.line } },
       rightPriceScale: { borderColor: palette.line }, timeScale: { borderColor: palette.line },
+      localization: { locale: localeCode(), priceFormatter: (value: number) => priceFormatter.format(value), timeFormatter: (time: Time) => typeof time === "number" ? dateLabel(time as UTCTimestamp) : String(time) },
     });
     price.applyOptions({
       upColor: palette.up, downColor: palette.down, wickUpColor: palette.up, wickDownColor: palette.down,
       borderUpColor: palette.up, borderDownColor: palette.down,
+      priceFormat: { type: "custom", formatter: (value: number) => priceFormatter.format(value) },
     });
     ma20.applyOptions({ color: palette.blue });
     ma60.applyOptions({ color: palette.ma60 });
@@ -282,7 +286,7 @@ export default function Chart({ candles, signals, indicators, currency, volumeUn
       position: signal.direction === "up" ? "belowBar" : "aboveBar",
       shape: signal.direction === "up" ? "arrowUp" : signal.direction === "down" ? "arrowDown" : "circle",
       color: signal.direction === "up" ? palette.up : signal.direction === "down" ? palette.down : palette.blue,
-      text: `${signal.is_stale ? "旧·" : ""}${({ breakout20: "突", sma20_60: "均", volume2x: "量", rsi14_cross: "RSI" } as Record<string, string>)[signal.rule_id] || "信号"}`,
+      text: `${signal.is_stale ? t("旧·", "Past·") : ""}${({ breakout20: t("突", "B"), sma20_60: t("均", "MA"), volume2x: t("量", "V"), rsi14_cross: "RSI" } as Record<string, string>)[signal.rule_id] || t("信号", "Signal")}`,
     }));
     markers.setMarkers(markerData);
     const first = rows[0]?.source;
@@ -292,41 +296,41 @@ export default function Chart({ candles, signals, indicators, currency, volumeUn
       instance.dataset = dataset;
       setHoveredTime(null);
     }
-  }, [timeline, rows, indicators, confirmedSignals, palette]);
+  }, [timeline, rows, indicators, confirmedSignals, palette, locale, priceFormatter]);
 
   if (!hasRows) {
     return <div className="market-chart__empty" role="status">
-      <strong>还没有可展示的 K 线</strong>
-      <p>{candles.length ? "当前数据缺少有效的开、高、低、收价格。请刷新行情或查看数据质量说明。" : "刷新行情后，价格、成交量与已确认信号会在这里显示。"}</p>
+      <strong>{t("还没有可展示的 K 线", "No candles to display yet")}</strong>
+      <p>{candles.length ? t("当前数据缺少有效的开、高、低、收价格。请刷新行情或查看数据质量说明。", "The current data has no valid open, high, low and close prices. Refresh or review the data quality notes.") : t("刷新行情后，价格、成交量与已确认信号会在这里显示。", "Prices, volume and confirmed signals appear here after a refresh.")}</p>
     </div>;
   }
 
   return <figure className="market-chart" aria-describedby={summaryId} style={{ margin: 0, minWidth: 0 }}>
     <div className="market-chart__legend" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 16px" }}>
-      <span>价格{priceUnit ? ` · ${priceUnit}` : ""}</span>
+      <span>{t("价格", "Price")}{priceUnit ? ` · ${priceUnit}` : ""}</span>
       <span className="market-chart__key"><i aria-hidden="true" style={{ display: "inline-block", width: 16, height: 2, background: palette?.blue ?? "var(--blue)", marginRight: 6, verticalAlign: "middle" }} />MA20</span>
       <span className="market-chart__key"><i aria-hidden="true" style={{ display: "inline-block", width: 16, height: 2, background: palette?.ma60 ?? "#9b681a", marginRight: 6, verticalAlign: "middle" }} />MA60</span>
-      {hasOpen && <span className="market-chart__note">空心蓝柱：盘中未收盘</span>}
+      {hasOpen && <span className="market-chart__note">{t("空心蓝柱：盘中未收盘", "Hollow blue candles: intraday, still open")}</span>}
     </div>
     {selected && <div className="market-chart__ohlc" style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", fontVariantNumeric: "tabular-nums" }}>
       <span>{dateLabel(selected.time)}</span>
-      <span>开 {priceFormatter.format(selected.open)}</span>
-      <span>高 {priceFormatter.format(selected.high)}</span>
-      <span>低 {priceFormatter.format(selected.low)}</span>
-      <span>收 {priceFormatter.format(selected.close)}</span>
+      <span>{t("开 ", "O ")} {priceFormatter.format(selected.open)}</span>
+      <span>{t("高 ", "H ")} {priceFormatter.format(selected.high)}</span>
+      <span>{t("低 ", "L ")} {priceFormatter.format(selected.low)}</span>
+      <span>{t("收 ", "C ")} {priceFormatter.format(selected.close)}</span>
       <span>{candleStatus(selected.source)}</span>
     </div>}
-    {chartError && <p className="market-chart__note" role="alert">图表暂时无法显示，请重新打开此标的。下方摘要保留最近一根 K 线。</p>}
+    {chartError && <p className="market-chart__note" role="alert">{t("图表暂时无法显示，请重新打开此标的。下方摘要保留最近一根 K 线。", "Unable to display the chart. Reopen this instrument. The summary retains the latest candle.")}</p>}
     <div ref={containerRef} className="market-chart__canvas" style={{ width: "100%", position: "relative" }} />
     <div className="market-chart__footer" style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: "6px 16px" }}>
-      <span>下图：成交量 · {quantityUnit}{missingVolume ? ` · ${missingVolume} 根缺失值留空` : ""}</span>
-      <span>绿涨 · 红跌 · UTC · 标记仅对应已收盘 K 线</span>
-      <span>突：区间突破 · 均：均线穿越 · 量：放量，完整证据见下方</span>
-      {timeline.length > rows.length && <span>{timeline.length - rows.length} 根价格缺失或无效，保留空白位置</span>}
+      <span>{t("下图：成交量", "Lower pane: volume")} · {quantityUnit}{missingVolume ? t(` · ${missingVolume} 根缺失值留空`, ` · ${missingVolume} missing values left blank`) : ""}</span>
+      <span>{t("绿涨 · 红跌 · UTC · 标记仅对应已收盘 K 线", "Green up · Red down · UTC · Markers use closed candles only")}</span>
+      <span>{t("突：区间突破 · 均：均线穿越 · 量：放量，完整证据见下方", "B: breakout · MA: crossover · V: volume expansion. Full evidence below.")}</span>
+      {timeline.length > rows.length && <span>{t(`${timeline.length - rows.length} 根价格缺失或无效，保留空白位置`, `${timeline.length - rows.length} candles have missing or invalid prices; their positions remain blank`)}</span>}
       <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts™ · Copyright (с) 2025 TradingView, Inc.</a>
     </div>
     <figcaption id={summaryId} className="sr-only">
-      {latest && `最近 K 线：${dateLabel(latest.time)}，${candleStatus(latest.source)}。开盘 ${priceFormatter.format(latest.open)}，最高 ${priceFormatter.format(latest.high)}，最低 ${priceFormatter.format(latest.low)}，收盘 ${priceFormatter.format(latest.close)}${priceUnit ? ` ${priceUnit}` : ""}。成交量${finite(latest.source.volume) && latest.source.volume >= 0 ? `${volumeFormatter.format(latest.source.volume)} ${quantityUnit}` : "缺失"}。共有 ${rows.length} 根有效 K 线，图中 ${confirmedSignals.length} 条已收盘信号记录。`}
+      {latest && t(`最近 K 线：${dateLabel(latest.time)}，${candleStatus(latest.source)}。开盘 ${priceFormatter.format(latest.open)}，最高 ${priceFormatter.format(latest.high)}，最低 ${priceFormatter.format(latest.low)}，收盘 ${priceFormatter.format(latest.close)}${priceUnit ? ` ${priceUnit}` : ""}。成交量${finite(latest.source.volume) && latest.source.volume >= 0 ? `${volumeFormatter.format(latest.source.volume)} ${quantityUnit}` : "缺失"}。共有 ${rows.length} 根有效 K 线，图中 ${confirmedSignals.length} 条已收盘信号记录。`, `Latest candle: ${dateLabel(latest.time)}, ${candleStatus(latest.source)}. Open ${priceFormatter.format(latest.open)}, high ${priceFormatter.format(latest.high)}, low ${priceFormatter.format(latest.low)}, close ${priceFormatter.format(latest.close)}${priceUnit ? ` ${priceUnit}` : ""}. Volume ${finite(latest.source.volume) && latest.source.volume >= 0 ? `${volumeFormatter.format(latest.source.volume)} ${quantityUnit}` : "missing"}. ${rows.length} valid candles and ${confirmedSignals.length} closed-candle signal records.`)}
     </figcaption>
   </figure>;
 }

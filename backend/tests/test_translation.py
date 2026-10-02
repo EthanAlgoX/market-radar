@@ -172,7 +172,7 @@ async def test_source_change_during_request_cannot_write_stale_translation(monke
         return envelope(json.loads(kwargs["json_body"]["messages"][1]["content"]))
     monkeypatch.setattr(translation, "fetch_url", provider)
     manager = TranslationManager(store, TranslationConfig(api_key="TEST_ONLY"))
-    with pytest.raises(TranslationError, match="原文"):
+    with pytest.raises(TranslationError, match="source changed"):
         await manager.translate(item["id"])
     assert store.get_item(item["id"])["translation"] is None
 
@@ -190,6 +190,8 @@ def test_environment_flash_config_and_status_never_exposes_key(monkeypatch):
     assert "SECRET_NOT_PRINTED" not in json.dumps(config.status())
     assert "SECRET_NOT_PRINTED" not in repr(config)
     monkeypatch.setenv("DEEPSEEK_FLASH_MODEL", "deepseek-pro")
+    assert TranslationConfig.from_environment().status()["configured"]
+    monkeypatch.setenv("DEEPSEEK_FLASH_MODEL", "invalid model name")
     assert not TranslationConfig.from_environment().status()["configured"]
 
 
@@ -221,7 +223,7 @@ async def test_hard_size_limit_returns_error_without_partial_request_or_cache(mo
     store = Store(tmp_path / "data.sqlite3")
     item = make_item(store, content="A" * 180001)
     manager = TranslationManager(store, TranslationConfig(api_key="TEST_ONLY"))
-    with pytest.raises(TranslationError, match="未截断"):
+    with pytest.raises(TranslationError, match="truncated"):
         await manager.translate(item["id"])
     assert not calls and store.get_item(item["id"])["translation"] is None
 

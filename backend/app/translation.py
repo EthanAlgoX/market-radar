@@ -9,6 +9,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 import httpx
 from pydantic import BaseModel, ConfigDict, StrictStr, ValidationError
@@ -18,6 +19,21 @@ from .security import fetch_url
 FIELDS = ("title", "content", "summary")
 CHUNK_CHARS = 6000
 MAX_ITEM_CHARS = 180000
+
+
+def normalize_api_base_url(value: str) -> str:
+    """Accept OpenAI-compatible HTTP endpoints without credentials or URL parameters."""
+    value = value.strip()
+    try:
+        parsed = httpx.URL(value)
+        if (parsed.scheme not in {"http", "https"} or not parsed.host or parsed.userinfo or urlsplit(value).username is not None
+                or "?" in value or "#" in value or any(ord(char) < 32 for char in value)):
+            raise ValueError
+        # Accessing the port also rejects malformed/out-of-range authority values.
+        urlsplit(value).port
+        return str(parsed).rstrip("/")
+    except (ValueError, httpx.InvalidURL):
+        raise ValueError("API base URL must be an HTTP(S) URL without credentials, query parameters or a fragment.") from None
 
 
 def originals(item: dict) -> dict[str, str]:
@@ -50,20 +66,41 @@ class TranslationConfig:
 
     @property
     def configured(self):
-        return bool(self.api_key and self.valid_model)
+        return bool(self.api_key and self.valid_model and self.valid_base_url)
 
     @property
     def valid_model(self):
-        return bool(re.fullmatch(r"[A-Za-z0-9._/-]{1,120}", self.model) and "flash" in self.model.lower())
+        return bool(re.fullmatch(r"[A-Za-z0-9._:/-]{1,120}", self.model))
+
+    @property
+    def valid_base_url(self):
+        try:
+            normalize_api_base_url(self.base_url)
+            return True
+        except ValueError:
+            return False
+
+    @property
+    def cache_key(self):
+        # Preserve the existing DeepSeek cache while isolating identically named models
+        # on different providers. Credentials never enter persistent cache identifiers.
+        base = normalize_api_base_url(self.base_url)
+        if base in {"https://api.deepseek.com", "https://api.deepseek.com/v1", "https://api.deepseek.com/chat/completions", "https://api.deepseek.com/v1/chat/completions"}:
+            return self.model
+        digest = hashlib.sha256(base.encode()).hexdigest()[:16]
+        return f"{self.model}@{digest}"
 
     @property
     def endpoint(self):
-        return self.base_url if self.base_url.endswith("/chat/completions") else self.base_url + "/chat/completions"
+        base = normalize_api_base_url(self.base_url)
+        return base if base.endswith("/chat/completions") else base + "/chat/completions"
 
     def status(self):
         if not self.valid_model:
-            return {"configured": False, "model": "", "message": "DEEPSEEK_FLASH_MODEL 必须指定 Flash 模型"}
-        return {"configured": self.configured, "model": self.model, "message": "DeepSeek Flash 中文翻译已就绪" if self.configured else "未检测到 DEEPSEEK_API_KEY，请在本机环境配置后重启服务"}
+            return {"configured": False, "model": "", "cache_key": None, "message": "Configure a valid translation model in Settings.", "error_code": "invalid_model"}
+        if not self.valid_base_url:
+            return {"configured": False, "model": self.model, "cache_key": None, "message": "Configure a valid translation API base URL in Settings.", "error_code": "invalid_base_url"}
+        return {"configured": self.configured, "model": self.model, "cache_key": self.cache_key, "message": "Chinese content translation is ready." if self.configured else "Configure your own LLM API in Settings to translate content into Chinese.", "error_code": None if self.configured else "translation_not_configured"}
 
 
 class TranslationResult(BaseModel):
@@ -76,26 +113,45 @@ class TranslationResult(BaseModel):
 class TranslationError(RuntimeError):
     """A safe explanation that never embeds provider bodies, headers or credentials."""
 
+    def __init__(self, message: str, code: str = "translation_failed"):
+        super().__init__(message)
+        self.code = code
+
 
 def safe_translation_error(error: Exception) -> str:
     if isinstance(error, TranslationError):
         return str(error)
     if isinstance(error, (httpx.TimeoutException, TimeoutError, asyncio.TimeoutError)):
-        return "翻译请求超时，原文已保留，请稍后重试"
+        return "Translation timed out. The original content is preserved; try again later."
     if isinstance(error, httpx.HTTPStatusError):
         code = error.response.status_code
         if code in {401, 403}:
-            return "翻译服务拒绝授权，请检查本机 DeepSeek 环境配置"
+            return "The translation provider rejected authorization. Check your LLM API settings."
         if code == 429:
-            return "翻译服务请求频率受限，请稍后重试"
-        return f"翻译服务返回 HTTP {code}，原文已保留"
-    return "翻译未完成，原文已保留，请检查服务配置后重试"
+            return "The translation provider is rate limited. Try again later."
+        return f"The translation provider returned HTTP {code}. The original content is preserved."
+    return "Translation failed. The original content is preserved; check your API settings and try again."
+
+
+def translation_error_code(error: Exception) -> str:
+    if isinstance(error, TranslationError):
+        return error.code
+    if isinstance(error, (httpx.TimeoutException, TimeoutError, asyncio.TimeoutError)):
+        return "translation_timeout"
+    if isinstance(error, httpx.HTTPStatusError):
+        code = error.response.status_code
+        if code in {401, 403}:
+            return "translation_auth_failed"
+        if code == 429:
+            return "translation_rate_limited"
+        return "translation_provider_error"
+    return "translation_failed"
 
 
 def batches(fields: dict[str, str]) -> list[dict[str, str]]:
     size = sum(len(value) for value in fields.values())
     if size > MAX_ITEM_CHARS:
-        raise TranslationError("该条原文超过 180000 字符，未截断或保存不完整翻译，请分批处理")
+        raise TranslationError("The source exceeds 180000 characters. No truncated or incomplete translation was saved.", "translation_too_large")
     if size <= CHUNK_CHARS:
         return [fields]
     result = []
@@ -110,9 +166,13 @@ class TranslationManager:
     def __init__(self, store, config: TranslationConfig | None = None):
         self.store = store
         self.config = config or TranslationConfig.from_environment()
-        self.store.translation_model = self.config.model
+        self.update_config(self.config)
         self.semaphore = asyncio.Semaphore(2)
-        self.inflight: dict[tuple[str, str, str], asyncio.Task] = {}
+        self.inflight: dict[tuple[str, str, TranslationConfig], asyncio.Task] = {}
+
+    def update_config(self, config: TranslationConfig):
+        self.config = config
+        self.store.translation_model = config.cache_key if config.valid_base_url and config.valid_model else "__invalid_translation_config__"
 
     def status(self):
         return self.config.status()
@@ -123,74 +183,76 @@ class TranslationManager:
         self.store.save_translation_job(job, unique)
         return job
 
-    async def run_job(self, job: dict, ids: list[str]):
+    async def run_job(self, job: dict, ids: list[str], config: TranslationConfig | None = None):
+        config = config or self.config
         async def worker(identity):
             try:
-                await self.translate(identity)
+                await self.translate(identity, config=config)
                 job["completed"] += 1
             except asyncio.CancelledError:
                 raise
             except Exception as error:
                 job["failed"] += 1
-                job["errors"].append({"id": identity, "message": safe_translation_error(error)})
+                job["errors"].append({"id": identity, "message": safe_translation_error(error), "error_code": translation_error_code(error)})
             self.store.save_translation_job(job)
         try:
             await asyncio.gather(*(worker(identity) for identity in dict.fromkeys(ids)))
         except asyncio.CancelledError:
             job["status"] = "failed"
             job["failed"] = job["total"] - job["completed"]
-            job["errors"].append({"id": "", "message": "翻译任务已停止，已完成译文仍在本机缓存"})
+            job["errors"].append({"id": "", "message": "The translation job stopped. Completed translations remain cached locally.", "error_code": "translation_cancelled"})
             self.store.save_translation_job(job)
             raise
         job["status"] = "completed"
         self.store.save_translation_job(job)
 
-    async def translate(self, identity: str):
-        if not self.config.valid_model:
-            raise TranslationError("请配置有效的 DeepSeek Flash 模型，原文已保留")
+    async def translate(self, identity: str, *, config: TranslationConfig | None = None):
+        # A job/request retains its immutable configuration across awaits and chunks.
+        config = config or self.config
+        if not config.valid_model or not config.valid_base_url:
+            raise TranslationError("Configure a valid LLM API URL and model in Settings.", "translation_invalid_config")
         item = self.store.get_item(identity)
         if not item:
-            raise TranslationError("该条内容不存在")
+            raise TranslationError("The source item does not exist.", "translation_item_missing")
         digest = source_hash(item)
-        cached = self.store.get_translation(identity, digest, self.config.model)
+        cached = self.store.get_translation(identity, digest, config.cache_key)
         if cached:
             return cached
-        key = (identity, digest, self.config.model)
+        key = (identity, digest, config)
         task = self.inflight.get(key)
         if task is None:
-            task = asyncio.create_task(self._translate_item(item, digest))
+            task = asyncio.create_task(self._translate_item(item, digest, config))
             self.inflight[key] = task
             task.add_done_callback(lambda completed: self.inflight.pop(key, None) if self.inflight.get(key) is completed else None)
         return await asyncio.shield(task)
 
-    async def _translate_item(self, item: dict, digest: str):
+    async def _translate_item(self, item: dict, digest: str, config: TranslationConfig):
         fields = originals(item)
         if is_chinese_only(fields):
             translated = fields
         else:
-            if not self.config.configured:
-                raise TranslationError("DeepSeek Flash 未配置，原文已保留")
+            if not config.configured:
+                raise TranslationError("Configure your own LLM API in Settings before translating content.", "translation_not_configured")
             pieces = {field: [] for field in FIELDS}
             chunks = batches(fields)
             async with self.semaphore:
                 for chunk in chunks:
-                    result = await self._request(chunk)
+                    result = await self._request(chunk, config)
                     for field in FIELDS:
                         if chunk[field]:
                             pieces[field].append(result[field])
             translated = {field: "\n".join(pieces[field]) for field in FIELDS}
         value = {
-            **translated, "language": "zh", "model": self.config.model,
+            **translated, "language": "zh", "model": config.model, "cache_key": config.cache_key,
             "translated_at": datetime.now(timezone.utc).isoformat(), "source_hash": digest,
         }
-        if not self.store.save_translation(item["id"], digest, self.config.model, value):
-            raise TranslationError("原文在翻译期间已更新，本次译文未覆盖新内容，请重新翻译")
+        if not self.store.save_translation(item["id"], digest, config.cache_key, value):
+            raise TranslationError("The source changed during translation. The new content was preserved; translate it again.", "translation_source_changed")
         return value
 
-    async def _request(self, fields: dict[str, str]) -> dict[str, str]:
+    async def _request(self, fields: dict[str, str], config: TranslationConfig) -> dict[str, str]:
         body = {
-            "model": self.config.model,
-            "thinking": {"type": "disabled"},
+            "model": config.model,
             "response_format": {"type": "json_object"},
             "max_tokens": 8192,
             "messages": [
@@ -198,26 +260,28 @@ class TranslationManager:
                 {"role": "user", "content": json.dumps(fields, ensure_ascii=False)},
             ],
         }
-        raw = await fetch_url(self.config.endpoint, method="POST", json_body=body, headers={"Authorization": "Bearer " + self.config.api_key}, timeout=60, max_bytes=2_000_000, allow_loopback=True)
+        if urlsplit(config.base_url).hostname == "api.deepseek.com" and "flash" in config.model.lower():
+            body["thinking"] = {"type": "disabled"}
+        raw = await fetch_url(config.endpoint, method="POST", json_body=body, headers={"Authorization": "Bearer " + config.api_key}, timeout=60, max_bytes=2_000_000, allow_loopback=True)
         try:
             envelope = json.loads(raw)
             choice = envelope["choices"][0]
             if choice.get("finish_reason") == "length":
-                raise TranslationError("翻译输出达到长度限制，未保存不完整译文，请重试或使用更短片段")
+                raise TranslationError("The output reached the token limit. No incomplete translation was saved.", "translation_output_limit")
             if choice.get("finish_reason") != "stop":
-                raise TranslationError("翻译服务未完整结束输出，未保存该结果，请重试")
+                raise TranslationError("The provider did not finish its output. No incomplete translation was saved.", "translation_incomplete")
             content = choice["message"]["content"]
             result = TranslationResult.model_validate_json(content).model_dump()
             for field in FIELDS:
                 if fields[field] and not result[field].strip():
-                    raise TranslationError("翻译结果缺少必需字段内容，原文已保留")
+                    raise TranslationError("The translation is missing required content. The original content is preserved.", "translation_invalid_response")
                 if not fields[field] and result[field]:
-                    raise TranslationError("翻译服务向空字段添加了内容，未保存该结果")
+                    raise TranslationError("The provider added content to an empty field. The result was not saved.", "translation_invalid_response")
             return result
         except TranslationError:
             raise
         except (KeyError, IndexError, TypeError, ValueError, ValidationError):
-            raise TranslationError("翻译服务返回的 JSON 格式不完整，原文已保留") from None
+            raise TranslationError("The provider returned an invalid JSON response. The original content is preserved.", "translation_invalid_response") from None
 
     async def shutdown(self):
         tasks = list(self.inflight.values())
