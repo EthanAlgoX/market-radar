@@ -2,23 +2,25 @@
 version: 1
 slug: "frontend-src-market-marketworkspace-tsx"
 primary_target: "frontend/src/market/MarketWorkspace.tsx"
-related_targets: ["frontend/src/market/Chart.tsx","frontend/src/market/market.css"]
+related_targets: ["frontend/src/market/Chart.tsx","frontend/src/market/market.css","frontend/src/market/helpers.ts"]
 ---
 
-# 行情与信号工作区
+# Markets & signals v0.5
 
-Scope: extend the existing local research workbench in Operate mode. The user adds a market symbol, refreshes public candles, checks an observed price or volume event, then opens related news or the original source.
+Mode: Operate. Extend the established local research workbench; retain its gray workspace, white panels, system type and blue actions. English is the default interface, with independently selectable Chinese source-content reading for related news.
 
-THESIS: a watchlist beside an inspectable candle chart makes the evidence behind each event visible. Keep the market workspace separate from keyword and personal information feeds.
+THESIS: let the user inspect price and volume first, then verify rule evidence and related information. Keep market refresh separate from news collection and local filtering.
 
-OWN-WORLD: retain the existing gray workspace, white panels, blue actions and Chinese system type. Use the established light/dark tokens; color on candles explains direction, while text states data quality.
+STORY: add → refresh → inspect currency, timeframe, candle status and freshness → inspect Signals → read Related news → check Data & rules. Failed updates preserve prior historical evidence and explain the failure. Associated news is context, not a causal claim.
 
-STORY: add → refresh → inspect timeframe, units and freshness → expand signal evidence → review source links and relevant local news. An empty watchlist explains the first action. A failed refresh preserves prior evidence and labels it historical.
+FIRST VIEWPORT: desktop shows a compact watchlist beside the selected instrument's identity, quote, quality note and chart. At 760px or below, a native current-instrument select replaces the long watchlist; Manage expands rows and removal controls. Empty watchlists expose adding an instrument directly.
 
-FIRST VIEWPORT: show the workspace title and refresh action, a compact watchlist on the left, and the selected symbol plus chart on the right. Mobile places the selectable watchlist before the chart. The first empty view puts adding a symbol in reach.
+FORM: the chart is persistent above three detail tabs: Signals, Related news, Data & rules. Signal evidence and full metadata are available without flooding the default view. Show signal markers is off by default so labels do not obscure candles; toggling markers does not rebuild the chart. Keyboard arrows/Home/End navigate detail tabs.
 
-FORM: ordinary extension of the incumbent workbench. The watchlist/detail arrangement supports repeated comparison. No new-world seed or staging was selected.
+PROOF: real OHLCV, source, currency, volume units, timezone, adjustment, closed-state, quality flags, numerical rule parameters and revision evidence. Hollow candles identify open intraday data. Missing values, bounded history and freshness uncertainty remain explicit. Model-generated prose must not replace numerical signal evidence.
 
-Proof: actual public OHLCV, closed-state and quality flags; numerical rule parameters, event times and provenance; related news association is not a causal claim. Keep model-generated prose out of numerical signals. Translation uses the existing global reading mode for news text.
+Related news provides its own Original/中文 control and Translation API link. It participates in translation only while its tab and market workspace are visible; opening the news library applies the instrument's research keyword to local content. Interface language changes must not refresh upstream candles or translate hidden news. The opened workspace remains mounted while hidden, and returning from Settings preserves the selected instrument and detail tab.
 
-Constraints: at most 20 symbols and 180 visible bars; crypto 1h, stocks 1d; no synthetic current quotes, automatic trading or automatic network request on add. Preserve missing data and revision history. Unresolved: future permitted intraday stock sources and offline backtesting.
+Constraints: at most 20 instruments; a bounded visible candle window; crypto 1h and stock 1d; manual upstream refresh; no synthetic quotes or trading execution. Preserve the viewed chart range across ordinary language/layout changes. Future permitted intraday stock sources and offline backtesting remain open work.
+
+Evidence: real desktop and 390px Chinese mobile screenshots show watchlist selection, historical quote labeling, freshness warnings, chart layout and a failed mainland-stock update. The final desktop screenshot confirms optional markers hidden by default, keeping candles unobscured. Root browser checks verified marker toggling and AAPL / Related news → Translation API → Back to markets preserving the selection. Live price guarantees, connected-account behavior and complete accessibility conformance are not established by these images.

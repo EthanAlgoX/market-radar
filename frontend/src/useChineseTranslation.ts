@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, json } from "./api.ts";
 import type { Post, TranslationJob, TranslationStatus } from "./types";
-import { getLocale } from "./i18n.ts";
+import { initialReadingChinese } from "./workspaceLogic.ts";
 
 export function translatedPost(
   item: Post,
@@ -39,7 +39,7 @@ export function useChineseTranslation(
   apply: (items: Post[]) => void,
 ) {
   const [chinese, setChinese] = useState(
-    () => getLocale() === "zh" && localStorage.getItem("radar-reading-language") !== "original",
+    () => initialReadingChinese(localStorage.getItem("radar-reading-language")),
   );
   const [configuration, setConfiguration] = useState<TranslationStatus | null>(
     null,

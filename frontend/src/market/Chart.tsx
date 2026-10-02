@@ -128,6 +128,7 @@ export default function Chart({ candles, signals, indicators, currency, volumeUn
   const [palette, setPalette] = useState<Palette | null>(null);
   const [hoveredTime, setHoveredTime] = useState<UTCTimestamp | null>(null);
   const [chartError, setChartError] = useState(false);
+  const [showSignalMarkers, setShowSignalMarkers] = useState(false);
   const hasRows = rows.length > 0;
   const latest = rows.at(-1);
   const selected = rows.find(row => row.time === hoveredTime) ?? latest;
@@ -223,7 +224,7 @@ export default function Chart({ candles, signals, indicators, currency, volumeUn
   useEffect(() => {
     const instance = instanceRef.current;
     if (!instance || !palette) return;
-    const { chart, price, volume, ma20, ma60, markers } = instance;
+    const { chart, price, volume, ma20, ma60 } = instance;
     chart.applyOptions({
       layout: {
         background: { type: ColorType.Solid, color: palette.surface }, textColor: palette.muted,
@@ -281,14 +282,6 @@ export default function Chart({ candles, signals, indicators, currency, volumeUn
     };
     ma20.setData(maData("ma20"));
     ma60.setData(maData("ma60"));
-    const markerData: SeriesMarker<Time>[] = confirmedSignals.map(({ signal, time }) => ({
-      time, id: signal.id,
-      position: signal.direction === "up" ? "belowBar" : "aboveBar",
-      shape: signal.direction === "up" ? "arrowUp" : signal.direction === "down" ? "arrowDown" : "circle",
-      color: signal.direction === "up" ? palette.up : signal.direction === "down" ? palette.down : palette.blue,
-      text: `${signal.is_stale ? t("旧·", "Past·") : ""}${({ breakout20: t("突", "B"), sma20_60: t("均", "MA"), volume2x: t("量", "V"), rsi14_cross: "RSI" } as Record<string, string>)[signal.rule_id] || t("信号", "Signal")}`,
-    }));
-    markers.setMarkers(markerData);
     const first = rows[0]?.source;
     const dataset = first ? `${first.provider}:${first.symbol ?? ""}:${first.interval ?? ""}` : "";
     if (instance.dataset !== dataset) {
@@ -296,7 +289,21 @@ export default function Chart({ candles, signals, indicators, currency, volumeUn
       instance.dataset = dataset;
       setHoveredTime(null);
     }
-  }, [timeline, rows, indicators, confirmedSignals, palette, locale, priceFormatter]);
+  }, [timeline, rows, indicators, palette, locale, priceFormatter]);
+
+  useEffect(() => {
+    const instance = instanceRef.current;
+    if (!instance || !palette) return;
+    // Marker visibility is independent of series data and the viewed candle window.
+    const markerData: SeriesMarker<Time>[] = showSignalMarkers ? confirmedSignals.map(({ signal, time }) => ({
+      time, id: signal.id,
+      position: signal.direction === "up" ? "belowBar" : "aboveBar",
+      shape: signal.direction === "up" ? "arrowUp" : signal.direction === "down" ? "arrowDown" : "circle",
+      color: signal.direction === "up" ? palette.up : signal.direction === "down" ? palette.down : palette.blue,
+      text: ({ breakout20: t("突", "B"), sma20_60: t("均", "MA"), volume2x: t("量", "V"), rsi14_cross: "RSI" } as Record<string, string>)[signal.rule_id] || t("信号", "Signal"),
+    })) : [];
+    instance.markers.setMarkers(markerData);
+  }, [confirmedSignals, palette, locale, showSignalMarkers]);
 
   if (!hasRows) {
     return <div className="market-chart__empty" role="status">
@@ -310,6 +317,8 @@ export default function Chart({ candles, signals, indicators, currency, volumeUn
       <span>{t("价格", "Price")}{priceUnit ? ` · ${priceUnit}` : ""}</span>
       <span className="market-chart__key"><i aria-hidden="true" style={{ display: "inline-block", width: 16, height: 2, background: palette?.blue ?? "var(--blue)", marginRight: 6, verticalAlign: "middle" }} />MA20</span>
       <span className="market-chart__key"><i aria-hidden="true" style={{ display: "inline-block", width: 16, height: 2, background: palette?.ma60 ?? "#9b681a", marginRight: 6, verticalAlign: "middle" }} />MA60</span>
+      <label className="market-chart__marker-toggle"><input type="checkbox" checked={showSignalMarkers} onChange={(event) => setShowSignalMarkers(event.target.checked)} />{t("显示信号标记", "Show signal markers")}</label>
+      {confirmedSignals.some(({ signal }) => signal.is_stale) && <span className="market-chart__history">{t("包含历史信号记录", "Includes historical signal records")}</span>}
       {hasOpen && <span className="market-chart__note">{t("空心蓝柱：盘中未收盘", "Hollow blue candles: intraday, still open")}</span>}
     </div>
     {selected && <div className="market-chart__ohlc" style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", fontVariantNumeric: "tabular-nums" }}>
@@ -324,13 +333,14 @@ export default function Chart({ candles, signals, indicators, currency, volumeUn
     <div ref={containerRef} className="market-chart__canvas" style={{ width: "100%", position: "relative" }} />
     <div className="market-chart__footer" style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: "6px 16px" }}>
       <span>{t("下图：成交量", "Lower pane: volume")} · {quantityUnit}{missingVolume ? t(` · ${missingVolume} 根缺失值留空`, ` · ${missingVolume} missing values left blank`) : ""}</span>
-      <span>{t("绿涨 · 红跌 · UTC · 标记仅对应已收盘 K 线", "Green up · Red down · UTC · Markers use closed candles only")}</span>
-      <span>{t("突：区间突破 · 均：均线穿越 · 量：放量，完整证据见下方", "B: breakout · MA: crossover · V: volume expansion. Full evidence below.")}</span>
+      <span>{t("绿涨 · 红跌 · UTC", "Green up · Red down · UTC")}</span>
+      <span>{t(`${confirmedSignals.length} 条可用的已收盘信号记录 · 标记${showSignalMarkers ? "已显示" : "已隐藏"}`, `${confirmedSignals.length} available closed-candle signal records · Markers ${showSignalMarkers ? "shown" : "hidden"}`)}</span>
+      {showSignalMarkers && <span>{t("突：区间突破 · 均：均线穿越 · 量：放量，完整证据见下方", "B: breakout · MA: crossover · V: volume expansion. Full evidence below.")}</span>}
       {timeline.length > rows.length && <span>{t(`${timeline.length - rows.length} 根价格缺失或无效，保留空白位置`, `${timeline.length - rows.length} candles have missing or invalid prices; their positions remain blank`)}</span>}
       <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts™ · Copyright (с) 2025 TradingView, Inc.</a>
     </div>
     <figcaption id={summaryId} className="sr-only">
-      {latest && t(`最近 K 线：${dateLabel(latest.time)}，${candleStatus(latest.source)}。开盘 ${priceFormatter.format(latest.open)}，最高 ${priceFormatter.format(latest.high)}，最低 ${priceFormatter.format(latest.low)}，收盘 ${priceFormatter.format(latest.close)}${priceUnit ? ` ${priceUnit}` : ""}。成交量${finite(latest.source.volume) && latest.source.volume >= 0 ? `${volumeFormatter.format(latest.source.volume)} ${quantityUnit}` : "缺失"}。共有 ${rows.length} 根有效 K 线，图中 ${confirmedSignals.length} 条已收盘信号记录。`, `Latest candle: ${dateLabel(latest.time)}, ${candleStatus(latest.source)}. Open ${priceFormatter.format(latest.open)}, high ${priceFormatter.format(latest.high)}, low ${priceFormatter.format(latest.low)}, close ${priceFormatter.format(latest.close)}${priceUnit ? ` ${priceUnit}` : ""}. Volume ${finite(latest.source.volume) && latest.source.volume >= 0 ? `${volumeFormatter.format(latest.source.volume)} ${quantityUnit}` : "missing"}. ${rows.length} valid candles and ${confirmedSignals.length} closed-candle signal records.`)}
+      {latest && t(`最近 K 线：${dateLabel(latest.time)}，${candleStatus(latest.source)}。开盘 ${priceFormatter.format(latest.open)}，最高 ${priceFormatter.format(latest.high)}，最低 ${priceFormatter.format(latest.low)}，收盘 ${priceFormatter.format(latest.close)}${priceUnit ? ` ${priceUnit}` : ""}。成交量${finite(latest.source.volume) && latest.source.volume >= 0 ? `${volumeFormatter.format(latest.source.volume)} ${quantityUnit}` : "缺失"}。共有 ${rows.length} 根有效 K 线，${confirmedSignals.length} 条可用的已收盘信号记录。信号标记${showSignalMarkers ? "已显示" : "已隐藏"}。`, `Latest candle: ${dateLabel(latest.time)}, ${candleStatus(latest.source)}. Open ${priceFormatter.format(latest.open)}, high ${priceFormatter.format(latest.high)}, low ${priceFormatter.format(latest.low)}, close ${priceFormatter.format(latest.close)}${priceUnit ? ` ${priceUnit}` : ""}. Volume ${finite(latest.source.volume) && latest.source.volume >= 0 ? `${volumeFormatter.format(latest.source.volume)} ${quantityUnit}` : "missing"}. ${rows.length} valid candles and ${confirmedSignals.length} available closed-candle signal records. Signal markers ${showSignalMarkers ? "shown" : "hidden"}.`)}
     </figcaption>
   </figure>;
 }

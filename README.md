@@ -6,7 +6,7 @@ A local workspace for market research. Search public news and social posts, orga
 
 The interface starts in **English** and can switch to **简体中文**. Source text stays in its original language by default; Chinese reading uses your configured LLM API and keeps the originals intact.
 
-Current release: **0.4**. See the [release notes](docs/UPGRADE_0_4.md) for bilingual reading and personal translation APIs, and [0.3](docs/UPGRADE_0_3.md) for the market-data implementation.
+Current release: **0.5**. See the [release notes](docs/UPGRADE_0_5.md) for the revised workspace and collection flows. The [workflow guide](docs/WORKFLOWS.md) explains each screen and its data boundaries.
 
 ## Run locally
 
@@ -25,20 +25,26 @@ The service binds to `127.0.0.1`. Use `localhost` or `127.0.0.1` so that account
 
 ## Start researching
 
-1. **Search news.** Enter a keyword or choose a market topic: macro, crypto, US stocks, Hong Kong stocks, China A-shares, finance or gold. Queries support phrases, parentheses, `OR`, `AND` and `NOT`, with English/Chinese financial aliases.
-2. **Build a watchlist.** Open the market workspace, add a symbol such as `BTC/USDT`, `AAPL`, `0700.HK` or `600519.SS`, then refresh to fetch candles.
-3. **Connect your feeds.** Open Settings to connect your own X or Reddit account, manage followed authors, and add public RSS feeds.
-4. **Choose a language.** Switch the interface to Chinese without an API. Configure a translation provider in Settings to read collected articles and posts in Chinese.
+1. **Collect news.** Open **News library**, enter a keyword in the collection box and select **Collect news**. Queries support phrases, parentheses, `OR`, `AND` and `NOT`, with English/Chinese financial aliases. After collection, the local list filters by that query; clear the visible filter to browse the whole library.
+2. **Read and organize.** Search the local library, filter by topic or source, open the reader, and save useful items. These controls read existing local data; they do not request another collection.
+3. **Connect your feeds.** Open **Settings → Accounts** to connect X or Reddit, or **RSS feeds** to enable subscriptions. Use **Following** or **For you** to collect those channels independently of keyword research.
+4. **Build a watchlist.** Open **Market & signals**, add `BTC/USDT`, `AAPL`, `0700.HK` or `600519.SS`, then refresh. Below the chart, switch between **Signals**, **Related news**, and **Data & rules**.
+5. **Choose a language.** The top-bar switch changes the interface locally. Select **Read in → 中文** in the news workspace, or Chinese translation in market-related news, to translate content using your own API configured in **Settings → Translation API**.
+
+News library searches across all collected channels; Following and For you offer their own channel views. The sidebar separates these from Saved and the market workspace. Settings groups Accounts, Research, RSS feeds, Translation API and Source status. Browser back/forward and copied hash links restore the workspace and local filters; see [route examples](docs/WORKFLOWS.md#navigation-and-links).
 
 ## News and social feeds
 
-| Channel | What it collects |
+| Collection channel / view | Content |
 | --- | --- |
 | Keyword research | Google News RSS search, financial RSS, and connected X/Reddit sources; Hacker News and an external RSSHub instance are also supported |
 | Following | Followed-account content and enabled subscriptions, without requiring a keyword match |
 | Recommendations | Your connected X For You feed or Reddit's OAuth `best` homepage |
+| Saved | Items you bookmark from any channel; reading this view does not collect new content |
 
-These channels remain independent: an item can belong to more than one channel. Collection coverage is bounded by each provider's API, pagination, request and time limits; the app shows failures and partial results.
+The three collection channels remain independent: an item can belong to more than one channel. Saved is a bookmark view across them. Collection coverage is bounded by each provider's API, pagination, request and time limits; the app shows failures and partial results.
+
+Collection uses the channel's supported sources and enabled connections. A local source filter never changes which sources are collected. Switching channels clears previous query, topic and source filters. Keyword shortcuts in the sidebar filter existing items and fill the collection query; shortcuts inside the collection box only prepare that query.
 
 - Read titles, source text, excerpts, publication times, matched terms and collection provenance. Open the original link at any time.
 - Filter and sort saved items, mark them read, bookmark them, and export JSON or CSV.
@@ -48,9 +54,13 @@ These channels remain independent: an item can belong to more than one channel. 
 
 New installations include feeds from the Federal Reserve, ECB, CoinDesk, Yahoo Finance, CNBC Finance and HKEX. Existing subscriptions are preserved. Optional scheduled news refresh runs only while the local service is running; market refresh remains manual. AI summaries are optional and are configured separately from content translation.
 
+Settings saves Research, RSS feeds, RSSHub and Translation API independently. Unsaved indicators and section-specific discard controls make pending edits visible. Drafts stay available while navigating the running page, and account synchronization preserves edited fields. Reloading or closing the browser discards unsaved drafts. Source status records attempts and successful collections separately and is available from the top bar.
+
 ## Market data and signals
 
 The watchlist starts empty, supports up to **20 symbols**, and fetches data only when you request a refresh. The chart shows up to **180 candles**, volume, MA20/MA60, and historical rule events.
+
+Signal markers are hidden by default to keep candles readable; enable **Show signal markers** to locate events. Opening Translation API from related news and returning preserves the selected instrument and analysis tab.
 
 | Market | Provider and supported scope | Data convention |
 | --- | --- | --- |
@@ -73,7 +83,9 @@ Up to eight related items are matched from the existing local news library withi
 Interface language and source-content translation have different requirements:
 
 - **English / 简体中文 interface:** local UI text switches without contacting an LLM. English is the default; the browser remembers your choice.
-- **Chinese source content:** configure an API base URL, API key and model in **Settings → Translation**. The default is DeepSeek Flash (`deepseek-flash`); a custom OpenAI-compatible Chat Completions provider and model can also be used. If no provider is configured, the app points you to Settings and retains the original text.
+- **Chinese source content:** configure an API base URL, API key and model in **Settings → Translation API**, then choose Chinese reading. The default is DeepSeek Flash (`deepseek-flash`); a custom OpenAI-compatible Chat Completions provider and model can also be used. If no provider is configured, the app points you to Settings and retains the original text.
+
+The two preferences are independent and persist across reloads: an English interface can show Chinese content, and a Chinese interface can show original posts. Switching interface language alone does not start translation. The reader labels a Chinese translation only when it is ready; collected excerpts are not described as complete articles.
 
 Translation covers collected titles, summaries and bodies, including related market news. It does not translate your query, source URLs or identifiers. Translations are cached locally by original-text revision, provider and model, so unchanged content can reuse its result. Errors retain the original and offer a retry; incomplete outputs are not saved as completed translations. Text being translated is sent to the API provider you configure.
 
@@ -141,8 +153,9 @@ News uses `market-radar.sqlite3`; market data uses `market-radar-market.sqlite3`
 Market Radar is an independent application using installed libraries, rather than a deployment of every reference platform. The runtime includes PRAW, Twikit, yfinance, AKShare, exchange_calendars, NumPy, TA-Lib and Lightweight Charts; exact package versions are recorded in the lockfiles. CCXT and the larger aggregation/trading platforms are research references, not runtime services.
 
 - [Reference projects and actual reuse](docs/REFERENCES.md)
+- [Workspace workflows](docs/WORKFLOWS.md) · [工作流程（中文）](docs/WORKFLOWS.zh-CN.md)
 - [Market-data research](docs/MARKET_DATA_RESEARCH.md) and [source research](docs/SOURCE_RESEARCH.md)
-- [0.3 release notes](docs/UPGRADE_0_3.md), [0.2 release notes](docs/UPGRADE_0_2.md), and [validation record](docs/TESTING.md)
+- [0.5 release notes](docs/UPGRADE_0_5.md), [0.4](docs/UPGRADE_0_4.md), [0.3](docs/UPGRADE_0_3.md), [0.2](docs/UPGRADE_0_2.md), and [validation record](docs/TESTING.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 Reference source checkouts are kept separately in the development workspace and are not needed to run this repository. The chart retains the required TradingView attribution, links and license notices. Historical research and test records describe their own validation dates and may be written in Chinese.

@@ -1,0 +1,112 @@
+.settings-page { max-width: 1112px; padding: 32px 36px 72px; }
+.settings-page .page-heading { align-items: flex-start; gap: 20px; }
+.settings-page .page-heading h1 { font-size: 26px; line-height: 1.3; }
+.settings-intro { color: var(--muted); font-size: 13px; margin-top: 8px; max-width: 72ch; }
+.settings-page .settings-tabs { gap: 24px; margin: 26px 0 24px; }
+.settings-page .settings-tabs button { min-height: 44px; font-size: 13px; }
+.settings-page .settings-tabs button:focus-visible, .settings-disclosure summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 3px; }
+.unsaved-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); flex-shrink: 0; }
+.settings-page .settings-content { width: 100%; max-width: 928px; gap: 20px; }
+.settings-editor-fields { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 20px; }
+.settings-page .connection-panel { border-radius: 8px; }
+.settings-page .connection-heading { padding: 20px 24px; }
+.settings-page .connection-heading h2 { font-size: 16px; line-height: 1.45; }
+.settings-page .connection-heading p { font-size: 12px; line-height: 1.65; max-width: 64ch; }
+.settings-page .connection-body { padding: 22px 24px; min-width: 0; }
+.settings-page .connection-body > p { max-width: 72ch; }
+.settings-page .connection-title { min-width: 0; }
+.settings-page .connection-title > .source-mark { width: 32px; height: 32px; border-radius: 6px; font-size: 20px; flex-shrink: 0; }
+.settings-page .connection-badge { font-size: 12px; }
+.settings-page .connection-message { border-left-width: 1px; font-size: 12px; padding: 10px 12px; line-height: 1.7; }
+.settings-page .advanced-settings summary { min-height: 26px; font-size: 12px; }
+.settings-page .text-note { font-size: 12px; line-height: 1.7; }
+.settings-page .field > span { font-size: 12px; color: var(--strong); }
+.settings-page .field input, .settings-page .field textarea, .settings-page .field select { font-size: 13px; border-radius: 6px; }
+.settings-page .field:last-child { margin-bottom: 0; }
+.settings-page .callback-note { margin-top: 16px; }
+.settings-page .connection-body .form-grid { margin-top: 18px; }
+.settings-page .form-grid .field { margin-bottom: 0; }
+.settings-page .settings-save-row { position: sticky; top: 76px; z-index: 5; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--surface); box-shadow: 0 5px 12px rgb(18 36 65 / 5%); }
+.settings-save-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.settings-dirty, .settings-clean { font-size: 12px; }
+.settings-dirty { color: var(--blue); }
+.settings-clean { color: var(--muted); }
+.settings-pending { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin: -6px 0 16px; }
+.settings-pending .text-button { font-size: 12px; }
+.settings-feedback { max-width: 928px; margin: 0 0 18px; border-radius: 6px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line-strong); font-size: 13px; overflow-wrap: anywhere; }
+.settings-feedback p { margin-top: 4px; }
+.settings-notice { display: flex; align-items: center; gap: 8px; color: var(--success); }
+.settings-page[data-section="preferences"] .settings-editor-fields > .connection-panel { display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+.settings-page[data-section="preferences"] .settings-editor-fields > .connection-panel > .connection-heading { display: block; border-bottom: 0; border-right: 1px solid var(--line); background: var(--surface-soft); }
+.settings-page[data-section="preferences"] .connection-heading p { margin-top: 8px; }
+.settings-disclosure { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
+.settings-disclosure > summary { padding: 17px 24px; cursor: pointer; color: var(--strong); font-size: 13px; line-height: 1.6; }
+.settings-disclosure > summary small { margin-left: 14px; color: var(--muted); font-size: 12px; }
+.settings-disclosure[open] > summary { border-bottom: 1px solid var(--line); }
+.settings-disclosure .connection-heading { border-bottom: 0; padding-bottom: 0; }
+.settings-disclosure .connection-body { padding-top: 16px; }
+.settings-disclosure .settings-save-row { position: static; box-shadow: none; margin-top: 20px; }
+.settings-page .preset-list { margin-top: 4px; }
+.settings-page .preset-row { align-items: flex-start; padding: 15px 0; }
+.settings-page .preset-row:first-child { padding-top: 0; }
+.settings-page .feed-settings-list { max-height: 560px; overflow-y: auto; }
+.settings-empty-feeds { color: var(--muted); font-size: 13px; padding: 22px 24px; max-width: 72ch; }
+.settings-page .feed-setting { padding: 16px 24px; }
+.settings-page .feed-setting:last-child { border-bottom: 0; }
+.settings-page .feed-setting strong { font-size: 13px; }
+.settings-page .feed-setting small { font-size: 11px; }
+.settings-page .feed-enabled { align-items: flex-start; width: 100%; cursor: pointer; }
+.settings-page .feed-enabled input { margin-top: 4px; flex-shrink: 0; }
+.settings-page[data-section="feeds"] .connection-body { border-top: 1px solid var(--line); }
+.settings-page .settings-disclosure .connection-body { border-top: 0; }
+.settings-section-intro h2 { color: var(--strong); font-size: 17px; }
+.settings-section-intro p { font-size: 13px; color: var(--muted); max-width: 72ch; margin-top: 7px; }
+.settings-health .source-health-list { padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.settings-health .source-health { padding: 18px 24px; }
+.settings-health .source-status-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.settings-health .source-health-meta { margin: 10px 0 0 34px; font-size: 12px; }
+.settings-health .source-health-meta p { max-width: 75ch; }
+.settings-health .source-health-list > .text-note { padding: 0 24px; }
+.settings-page .translation-settings { max-width: 840px; }
+.settings-page .translation-fields .form-grid { margin-top: 0; }
+.settings-page .translation-config-source { border: 1px solid var(--line); border-radius: 6px; background: var(--surface-soft); padding: 12px 14px; line-height: 1.7; }
+.settings-page .translation-fields > .field { margin-top: 18px; }
+.translation-provider-status { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); margin: 12px 0 20px; }
+.translation-provider-status strong { color: var(--strong); font-weight: 500; overflow-wrap: anywhere; }
+.translation-api-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 18px; margin-top: 20px; border-top: 1px solid var(--line); }
+.translation-api-actions .connection-actions { margin: 0; }
+.translation-help { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px; }
+.translation-help summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+.translation-help .text-note { margin-bottom: 0; }
+@media (max-width: 1100px) {
+  .settings-page { padding: 28px 24px 64px; }
+  .settings-page[data-section="preferences"] .settings-editor-fields > .connection-panel { grid-template-columns: 202px minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .settings-page { padding: 24px 16px 48px; }
+  .settings-page .page-heading { flex-wrap: wrap; }
+  .settings-page .page-heading h1 { font-size: 23px; }
+  .settings-page .page-heading > button { min-height: 38px; }
+  .settings-page .settings-tabs { gap: 20px; margin: 20px 0; padding: 0 1px; }
+  .settings-page .settings-content, .settings-editor-fields { gap: 16px; }
+  .settings-page .connection-heading, .settings-page .connection-body { padding: 18px; }
+  .settings-page .connection-heading { align-items: flex-start; gap: 12px; }
+  .settings-page .connection-title { gap: 10px; }
+  .settings-page .form-grid { grid-template-columns: 1fr; gap: 16px; }
+  .settings-page .field input, .settings-page .field textarea, .settings-page .field select { font-size: 16px; }
+  .settings-page[data-section="preferences"] .settings-editor-fields > .connection-panel { display: block; }
+  .settings-page[data-section="preferences"] .settings-editor-fields > .connection-panel > .connection-heading { border-right: 0; border-bottom: 1px solid var(--line); }
+  .settings-page .settings-save-row { top: 64px; padding: 12px; flex-wrap: wrap; }
+  .settings-save-actions { gap: 8px; }
+  .settings-save-actions .quiet-button { padding: 7px; font-size: 12px; }
+  .settings-disclosure > summary { padding: 16px 18px; }
+  .settings-disclosure > summary small { display: block; margin: 4px 0 0 16px; }
+  .settings-page .feed-setting { padding: 15px 18px; }
+  .settings-page .feed-settings-list { max-height: none; }
+  .settings-page .preset-row { flex-wrap: wrap; gap: 8px; }
+  .settings-health .source-health { padding: 16px 18px; }
+  .settings-health .source-health-meta { margin-left: 0; }
+  .settings-page .callback-note { flex-direction: column; align-items: flex-start; }
+  .settings-page .callback-note .text-button { margin-left: 0; }
+  .translation-api-actions { align-items: flex-start; }
+}

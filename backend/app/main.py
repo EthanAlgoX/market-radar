@@ -517,7 +517,7 @@ def create_app(data_dir: Path | None = None):
             if hasattr(service.x, "shutdown"):
                 await service.x.shutdown()
 
-    application = FastAPI(title="Market Radar", version="0.4.0", lifespan=lifespan)
+    application = FastAPI(title="Market Radar", version="0.5.0", lifespan=lifespan)
     application.include_router(create_market_router(lambda request: request.app.state.service.market))
     application.add_middleware(CORSMiddleware, allow_origins=sorted(ALLOWED_ORIGINS), allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Content-Type"], allow_credentials=False)
 
@@ -557,7 +557,7 @@ def create_app(data_dir: Path | None = None):
     async def health(request: Request):
         with svc(request).store.connect() as db:
             db.execute("SELECT 1").fetchone()
-        return {"status": "ok", "version": "0.4.0"}
+        return {"status": "ok", "version": "0.5.0"}
 
     @application.get("/api/overview")
     async def overview(request: Request):
