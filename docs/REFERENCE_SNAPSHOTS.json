@@ -1,0 +1,268 @@
+{
+  "schema_version": 1,
+  "generated_at_beijing": "2026-10-02T17:25:14+08:00",
+  "timezone": "Asia/Shanghai",
+  "download_policy": "depth=1, origin default branch, at most 3 concurrent jobs; no dependency installation",
+  "repositories": [
+    {
+      "name": "rsshub",
+      "repository": "DIYgod/RSSHub",
+      "repository_url": "https://github.com/DIYgod/RSSHub",
+      "clone_url": "https://github.com/DIYgod/RSSHub.git",
+      "purpose": "可选 RSS 源；参考 X 关键词、作者、HomeTimeline 和 HomeLatestTimeline 接入",
+      "status": "downloaded",
+      "branch": "master",
+      "commit": "b0dce0ef9a009080a986334161a23eb0a8297afb",
+      "downloaded_at_beijing": "2026-10-02T17:24:53+08:00",
+      "license": "AGPL-3.0",
+      "license_files": [
+        "LICENSE"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    },
+    {
+      "name": "praw",
+      "repository": "praw-dev/praw",
+      "repository_url": "https://github.com/praw-dev/praw",
+      "clone_url": "https://github.com/praw-dev/praw.git",
+      "purpose": "实际 Python Reddit API 客户端依赖；参考搜索、作者和登录后的 front/subscriptions",
+      "status": "downloaded",
+      "branch": "main",
+      "commit": "718b90c75e0f8758d45db75e33b7d72e430d026a",
+      "downloaded_at_beijing": "2026-10-02T17:24:53+08:00",
+      "license": "BSD-2-Clause",
+      "license_files": [
+        "LICENSE.txt"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    },
+    {
+      "name": "asyncpraw",
+      "repository": "praw-dev/asyncpraw",
+      "repository_url": "https://github.com/praw-dev/asyncpraw",
+      "clone_url": "https://github.com/praw-dev/asyncpraw.git",
+      "purpose": "异步 Reddit API 客户端备选；当前不与 PRAW 同时启用",
+      "status": "downloaded",
+      "branch": "main",
+      "commit": "5d60aa2bc82122a013bb9d0c63d206b22369e53d",
+      "downloaded_at_beijing": "2026-10-02T17:24:53+08:00",
+      "license": "BSD-2-Clause",
+      "license_files": [
+        "LICENSE.txt"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    },
+    {
+      "name": "social-monitor",
+      "repository": "777genius/social-monitor",
+      "repository_url": "https://github.com/777genius/social-monitor",
+      "clone_url": "https://github.com/777genius/social-monitor.git",
+      "purpose": "参考 RSS 聚合、数据加工与资讯网站工作流；不部署整套平台",
+      "status": "downloaded",
+      "branch": "main",
+      "commit": "1bea3dca70bbfbfe15d103ee78fd70715c9204e0",
+      "downloaded_at_beijing": "2026-10-02T17:25:07+08:00",
+      "license": "Apache-2.0",
+      "license_files": [
+        "LICENSE"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    },
+    {
+      "name": "harken",
+      "repository": "VladUZH/harken",
+      "repository_url": "https://github.com/VladUZH/harken",
+      "clone_url": "https://github.com/VladUZH/harken.git",
+      "purpose": "参考 Mention 数据结构、来源适配、去重和情感/主题工作流；不部署整套平台",
+      "status": "downloaded",
+      "branch": "main",
+      "commit": "d0710a427dbbe712594ef3a6c25112e1d14cc027",
+      "downloaded_at_beijing": "2026-10-02T17:24:57+08:00",
+      "license": "MIT",
+      "license_files": [
+        "LICENSE"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    },
+    {
+      "name": "rss-bridge",
+      "repository": "RSS-Bridge/rss-bridge",
+      "repository_url": "https://github.com/RSS-Bridge/rss-bridge",
+      "clone_url": "https://github.com/RSS-Bridge/rss-bridge.git",
+      "purpose": "参考 Reddit/X 等公开来源转 RSS 的适配器；可选外部源",
+      "status": "downloaded",
+      "branch": "master",
+      "commit": "cc8a6459b1f67066bd861b2f225f3aef12ea198d",
+      "downloaded_at_beijing": "2026-10-02T17:24:58+08:00",
+      "license": "Unlicense",
+      "license_files": [
+        "UNLICENSE"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    },
+    {
+      "name": "freshrss",
+      "repository": "FreshRSS/FreshRSS",
+      "repository_url": "https://github.com/FreshRSS/FreshRSS",
+      "clone_url": "https://github.com/FreshRSS/FreshRSS.git",
+      "purpose": "参考过滤查询和 HTML/RSS 分享；轻量展示备选，当前不部署",
+      "status": "downloaded",
+      "branch": "edge",
+      "commit": "a4dbc4240d8d0d62ab204ec7d3f68c4dd6e1cb38",
+      "downloaded_at_beijing": "2026-10-02T17:25:01+08:00",
+      "license": "AGPL-3.0",
+      "license_files": [
+        "LICENSE.txt"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    },
+    {
+      "name": "trendradar",
+      "repository": "sansan0/TrendRadar",
+      "repository_url": "https://github.com/sansan0/TrendRadar",
+      "clone_url": "https://github.com/sansan0/TrendRadar.git",
+      "purpose": "参考热榜/RSS 关键词分组、报告和通知；当前不部署",
+      "status": "downloaded",
+      "branch": "master",
+      "commit": "792bcc3928b1617bba09df34989fd5675c159b86",
+      "downloaded_at_beijing": "2026-10-02T17:25:02+08:00",
+      "license": "GPL-3.0",
+      "license_files": [
+        "LICENSE"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    },
+    {
+      "name": "newsnow",
+      "repository": "newsnext/newsnow",
+      "repository_url": "https://github.com/newsnext/newsnow",
+      "clone_url": "https://github.com/newsnext/newsnow.git",
+      "purpose": "参考多来源热榜网站的展示与 adapter 结构；当前不部署",
+      "status": "downloaded",
+      "branch": "main",
+      "commit": "0f95b2c998dffbfd2ddbc51b47b5809887dc6b97",
+      "downloaded_at_beijing": "2026-10-02T17:25:05+08:00",
+      "license": "MIT",
+      "license_files": [
+        "LICENSE"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    },
+    {
+      "name": "openmagpie",
+      "repository": "obris-dev/openmagpie",
+      "repository_url": "https://github.com/obris-dev/openmagpie",
+      "clone_url": "https://github.com/obris-dev/openmagpie.git",
+      "purpose": "参考社会监听与信息聚合的产品/数据组织；当前不部署",
+      "status": "downloaded",
+      "branch": "main",
+      "commit": "27592ad8216e5ea0d6e0bd50727bbd10feb94cd1",
+      "downloaded_at_beijing": "2026-10-02T17:25:06+08:00",
+      "license": "Apache-2.0",
+      "license_files": [
+        "LICENSE"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    },
+    {
+      "name": "twikit",
+      "repository": "d60/twikit",
+      "repository_url": "https://github.com/d60/twikit",
+      "clone_url": "https://github.com/d60/twikit.git",
+      "purpose": "实际 X 客户端依赖；参考关键词、作者、本人推荐/关注时间线读取",
+      "status": "downloaded",
+      "branch": "main",
+      "commit": "c3b7220866f8582009fe2d1155b6fe92192a2711",
+      "downloaded_at_beijing": "2026-10-02T17:25:08+08:00",
+      "license": "MIT",
+      "license_files": [
+        "LICENSE"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    },
+    {
+      "name": "x-summary",
+      "repository": "barbieri/x-summary",
+      "repository_url": "https://github.com/barbieri/x-summary",
+      "clone_url": "https://github.com/barbieri/x-summary.git",
+      "purpose": "参考本人 X 时间线获取与摘要工作流；当前不部署，不复制 GPL 源码",
+      "status": "downloaded",
+      "branch": "master",
+      "commit": "dc7740f33767d675afc549cffaab4031f0775482",
+      "downloaded_at_beijing": "2026-10-02T17:25:09+08:00",
+      "license": "GPL-3.0",
+      "license_files": [
+        "LICENSE"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    },
+    {
+      "name": "freed",
+      "repository": "freed-project/freed",
+      "repository_url": "https://github.com/freed-project/freed",
+      "clone_url": "https://github.com/freed-project/freed.git",
+      "purpose": "参考个人信息流的浏览器/桌面捕获与统一阅读设计；当前不部署",
+      "status": "downloaded",
+      "branch": "dev",
+      "commit": "2bbd1fd8b7420129fc2a8799f81bad316daaac2e",
+      "downloaded_at_beijing": "2026-10-02T17:25:13+08:00",
+      "license": "MIT",
+      "license_files": [
+        "LICENSE"
+      ],
+      "source_modified": false,
+      "dependencies_installed": false,
+      "method": "git-shallow-clone",
+      "shallow": true,
+      "clean_worktree": true
+    }
+  ]
+}
