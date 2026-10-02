@@ -3,6 +3,8 @@ import {
   useEffect,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type FormEvent,
 } from "react";
 import {
@@ -67,6 +69,8 @@ import type {
   SourceState,
   View,
 } from "./types";
+
+const MarketWorkspace = lazy(() => import("./market/MarketWorkspace"));
 
 const TOPICS: { id: string; name: string; icon: LucideIcon; query: string }[] =
   [
@@ -225,7 +229,7 @@ function SourceMark({ source }: { source: string }) {
 }
 
 export default function App() {
-  const [page, setPage] = useState<"feed" | "settings">("feed");
+  const [page, setPage] = useState<"feed" | "market" | "settings">("feed");
   const [settingsTab, setSettingsTab] = useState<
     "accounts" | "preferences" | "feeds"
   >("accounts");
@@ -236,6 +240,7 @@ export default function App() {
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState("latest");
   const [items, setItems] = useState<Post[]>([]);
+  const [marketRelated, setMarketRelated] = useState<Post[]>([]);
   const [total, setTotal] = useState(0);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -263,9 +268,16 @@ export default function App() {
       return result ? { ...item, translation: result.translation } : item;
     };
     setItems((previous) => previous.map(merge));
+    setMarketRelated((previous) => previous.map(merge));
     setSelected((previous) => (previous ? merge(previous) : previous));
   }, []);
-  const chinese = useChineseTranslation(items, applyTranslations);
+  const chinese = useChineseTranslation(page === "market" ? marketRelated : items, applyTranslations);
+  const receiveMarketNews = useCallback((posts: Post[]) => {
+    setMarketRelated((previous) => posts.map((post) => {
+      const cached = previous.find((item) => sameOriginal(item, post));
+      return cached?.translation && !post.translation ? { ...post, translation: cached.translation } : post;
+    }));
+  }, []);
   useEffect(() => {
     itemCount.current = items.length;
   }, [items.length]);
@@ -561,6 +573,20 @@ export default function App() {
           <span className="local-indicator" />
           个人工作区<span className="local-label">本地</span>
         </div>
+        <nav className="topic-nav" aria-label="行情工作台">
+          <button
+            className={`nav-item ${page === "market" ? "active" : ""}`}
+            aria-current={page === "market" ? "page" : undefined}
+            onClick={() => {
+              setPage("market");
+              setSelected(null);
+              setMobileMenu(false);
+            }}
+          >
+            <Activity size={18} strokeWidth={1.7} />
+            <span>行情与信号</span>
+          </button>
+        </nav>
         <div className="nav-caption">交易主题</div>
         <nav className="topic-nav" aria-label="交易主题">
           {TOPICS.map((t) => {
@@ -661,7 +687,7 @@ export default function App() {
             >
               <Menu size={21} />
             </button>
-            <span>{page === "feed" ? "资讯工作台" : "工作区设置"}</span>
+            <span>{page === "feed" ? "资讯工作台" : page === "market" ? "行情与信号" : "工作区设置"}</span>
           </div>
           <div className="topbar-end">
             <button
@@ -680,13 +706,35 @@ export default function App() {
                 className={`status-dot ${availableSources > 0 ? "success" : ""}`}
               />
               {availableSources > 0
-                ? `${availableSources} 个可用来源`
-                : "检查来源连接"}
+                ? `${page === "market" ? "资讯：" : ""}${availableSources} 个可用来源`
+                : page === "market" ? "检查资讯来源连接" : "检查来源连接"}
             </span>
           </div>
         </header>
 
-        {page === "feed" ? (
+        {page === "market" ? (
+          <Suspense fallback={<div className="search-section" role="status">正在打开行情工作台…</div>}>
+            <MarketWorkspace
+              chinese={chinese.chinese}
+              translationModel={chinese.model}
+              translatedNews={marketRelated}
+              onRelatedNews={receiveMarketNews}
+              translationIssue={chinese.issue || Object.values(chinese.failures)[0] || ""}
+              translationRunning={chinese.running}
+              onTranslationRetry={chinese.retry}
+              onOpenNews={(keyword) => {
+                setPage("feed");
+                setTopic("all");
+                setView("search");
+                setSource("all");
+                setFilter("");
+                setQuery(keyword);
+                setSelected(null);
+                tell("已填入相关标的。点击「跨源搜索」获取新的资讯。");
+              }}
+            />
+          </Suspense>
+        ) : page === "feed" ? (
           <>
             <section className="search-section">
               <div className="page-heading">

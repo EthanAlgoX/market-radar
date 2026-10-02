@@ -2,7 +2,7 @@
   "schema_version": 1,
   "review_date": "2026-10-03",
   "timezone": "Asia/Shanghai",
-  "purpose": "Read-only market-data research reference checkouts; not application dependencies.",
+  "purpose": "Historical read-only market-data research source checkouts, kept outside the application. incorporated_into_runtime=false describes these checkout sources, not separately installed packages. Market Radar 0.3 installs selected libraries through backend/uv.lock and frontend/package-lock.json; see docs/REFERENCES.md and THIRD_PARTY_NOTICES.md. The 11 historical snapshot records are unchanged.",
   "repositories": [
     {
       "name": "ccxt",

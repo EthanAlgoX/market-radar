@@ -1,15 +1,17 @@
 {
   "name": "market-radar-web",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "tsc -b && vite build",
     "check": "tsc -b --pretty false",
+    "test": "node --experimental-strip-types --test src/market/*.test.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort"
   },
   "dependencies": {
+    "lightweight-charts": "5.2.1",
     "lucide-react": "1.49.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"

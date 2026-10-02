@@ -29,6 +29,8 @@ from .connectors.x import XConnector
 from .security import SecretStore, fetch_url, safe_error
 from .store import ItemVersionConflict, Store, now_iso
 from .translation import TranslationManager
+from .market.service import MarketService
+from .market.router import create_market_router
 
 ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_ORIGINS = {
@@ -140,6 +142,7 @@ class Service:
         self.x = XConnector(self.secrets, data_dir, store=self.store)
         self.reddit = RedditConnector(self.secrets, store=self.store)
         self.public = PublicConnector(self.store)
+        self.market = MarketService(data_dir, news_store=self.store)
         self.tasks: set[asyncio.Task] = set()
         self.source_locks = {source: asyncio.Lock() for source in SOURCES}
         self.source_budget = asyncio.Semaphore(3)
@@ -425,6 +428,7 @@ def create_app(data_dir: Path | None = None):
         service = Service(data_dir or Path(os.environ.get("RADAR_DATA_DIR", ROOT / "data")))
         application.state.service = service
         service.start_workers()
+        service.market.start_workers()
         scheduler = service.spawn(service.scheduler())
         try:
             yield
@@ -432,11 +436,13 @@ def create_app(data_dir: Path | None = None):
             for task in list(service.tasks):
                 task.cancel()
             await asyncio.gather(*list(service.tasks), return_exceptions=True)
+            await service.market.shutdown()
             await service.translation.shutdown()
             if hasattr(service.x, "shutdown"):
                 await service.x.shutdown()
 
-    application = FastAPI(title="Market Radar", version="0.2.0", lifespan=lifespan)
+    application = FastAPI(title="Market Radar", version="0.3.0", lifespan=lifespan)
+    application.include_router(create_market_router(lambda request: request.app.state.service.market))
     application.add_middleware(CORSMiddleware, allow_origins=sorted(ALLOWED_ORIGINS), allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Content-Type"], allow_credentials=False)
 
     @application.middleware("http")
@@ -475,7 +481,7 @@ def create_app(data_dir: Path | None = None):
     async def health(request: Request):
         with svc(request).store.connect() as db:
             db.execute("SELECT 1").fetchone()
-        return {"status": "ok", "version": "0.2.0"}
+        return {"status": "ok", "version": "0.3.0"}
 
     @application.get("/api/overview")
     async def overview(request: Request):

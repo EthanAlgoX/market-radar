@@ -1,6 +1,8 @@
 # Market Radar：市场行情与 K 线信号研究
 
-核验日期：2026-10-03（Asia/Shanghai）。本文是下一阶段设计依据；当前网站 0.2 仍是资讯聚合平台，本文所述行情采集、指标、信号和图表尚未接入运行。
+核验日期：2026-10-03（Asia/Shanghai）。**本文保留 0.3 实施前的研究基线，下面的候选组合、版本观察和公开小请求结果不是当前运行清单。**
+
+0.3 已接入独立行情通道：Binance 原生公开 REST 获取 USDT 现货 1h；yfinance 获取美股/港股日线；AKShare 获取沪深原始日线；TA-Lib / NumPy 计算指标，Lightweight Charts 展示图表。CCXT、回测引擎和 Futu 未进入运行依赖。精确包版本由锁文件控制，参考仓库快照仍独立只读保存。实际范围与新版隔离服务样本见 [UPGRADE_0_3.md](UPGRADE_0_3.md)，运行依赖与许可见 [REFERENCES.md](REFERENCES.md) 和 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。研究阶段未安装 SDK、原始东方财富请求失败等描述均仅指当时探测，不能据此否定后续实际接入结果。
 
 ## 建议采用的组合
 

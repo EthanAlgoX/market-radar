@@ -1,6 +1,6 @@
 # 参考来源与实际复用清单
 
-Market Radar 是独立实现的本地资讯聚合应用，核心运行路线是 **FastAPI + PRAW + Twikit**，并可接入 RSS。它没有启动 Social Monitor、Harken、FreshRSS 等完整上游平台，也不从开发时单独保存的参考快照导入这些平台的源码。
+Market Radar 是独立实现的本地资讯与行情应用。新闻和社交路线继续使用 **FastAPI + PRAW + Twikit** 与 RSS；0.3 新增独立行情适配、规则计算及图表。它没有启动 Social Monitor、Harken、FreshRSS 等完整上游平台，也不从开发时单独保存的参考快照导入平台源码。
 
 ## 实际声明的运行依赖
 
@@ -17,9 +17,31 @@ Market Radar 是独立实现的本地资讯聚合应用，核心运行路线是 
 | 浏览器集成 | `playwright>=1.50,<2` | 浏览器会话集成组件；安装包不代表已下载浏览器或已完成登录 |
 | 前端 | `react=19.3.0`、`react-dom=19.3.0`、`lucide-react=1.49.0` | 独立开发的 React 界面与图标 |
 
-前端构建工具另有 TypeScript `^6.0.0`、Vite `8.3.2`、`@vitejs/plugin-react` `6.1.1` 和 React 类型包；后端 `dev` 可选依赖声明 pytest 与 pytest-asyncio。SQLite 存储使用 Python 标准库，不作为独立下载平台。安装时解析出的具体包版本应以环境或 lockfile 为准，不能把下表的参考 commit 当成已安装包版本。
+前端构建工具另有 TypeScript `^6.0.0`、Vite `8.3.2`、`@vitejs/plugin-react` `6.1.1` 和 React 类型包；后端 `dev` 可选依赖声明 pytest 与 pytest-asyncio。SQLite 存储使用 Python 标准库，不作为独立下载平台。安装时解析出的具体包版本应以 `backend/uv.lock` 和 `frontend/package-lock.json` 为准，不能把参考 commit 当成已安装包版本。
 
-## 上游参考快照
+## 0.3 新增运行组件
+
+| 组件 | 依赖声明 / 本轮安装版本 | 实际用途与代码许可 |
+| --- | --- | --- |
+| AKShare | `akshare>=1.19.1,<2` / **1.19.1** | 东方财富沪深原始日线；MIT |
+| yfinance | `yfinance>=1.7,<2` / **1.7.0** | Yahoo 美股、港股日线；关闭额外自动复权与修复，保留公司事件；Apache-2.0 |
+| exchange_calendars | `exchange-calendars>=4.13,<5` / **4.13.2** | 交易日、半日市、时区与收盘边界；Apache-2.0 |
+| NumPy | `numpy>=2.4,<3` / **2.5.3** | 有限数值数组；BSD-3-Clause |
+| TA-Lib Python | `ta-lib>=0.8.1,<1` / **0.8.1** | 实际 SMA / RSI 计算及 lookback 检查；Python 包 BSD-2-Clause，C 库 BSD-3-Clause |
+| Lightweight Charts | `lightweight-charts=5.2.1` / **5.2.1** | K 线、成交量、均线和事件标记；Apache-2.0，保留 NOTICE 与 TradingView 署名 |
+
+加密行情由本项目的固定 Binance 公开 REST 适配器取得 USDT 现货 1h，保留原始 close time、服务器时间及 base/quote volume。**CCXT 不在运行依赖中**；没有通过该快照导入 CCXT，也没有启用其交易或 WebSocket 能力。行情库的代码许可证不代表上游数据免费实时、全历史完整或允许公开再分发。
+
+另保存的 [11 个行情参考快照](MARKET_DATA_REFERENCE_SNAPSHOTS.json) 保留原始源码、提交和许可证，只供独立阅读。清单里的 `incorporated_into_runtime=false` 描述这些源码 checkout 没有合并或直接导入，不能解读为同名安装包都没有被使用。上述实际库通过包管理器安装，精确版本由锁文件控制。
+
+- **CCXT、daily_stock_analysis、QuantDinger**：参考行情适配、标的身份、有限窗口、自选及新闻关联的工作流；具体 adapter、存储、质量规则和页面由本项目实现。未导入完整平台；QuantDinger 前端不属于本项目组件。
+- **Freqtrade、backtesting.py、vectorbt**：保留作研究参考，未引入交易执行、回测或参数优化引擎。未合并 GPL/AGPL 源码；vectorbt 的 Commons Clause 不能省略。
+- **Futu SDK / OpenD**：未安装、未登录、未使用个人行情权限。当前行情通道只访问公开来源。
+- **Lightweight Charts**：使用安装包绘图，不提供 TradingView 行情。图表保留 TradingView logo 与链接，完整 LICENSE / NOTICE 随前端静态资源提供。
+
+新增组件及署名事实见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)，当前行为见 [UPGRADE_0_3.md](UPGRADE_0_3.md)。参考快照中的上游版本观察与实际安装版本分别记录，不改写历史快照。
+
+## 资讯与社交上游参考快照
 
 开发时单独保存了 13 个参考仓库，完整 SHA、下载北京时间、原始 URL、下载状态和用途见 [REFERENCE_SNAPSHOTS.json](REFERENCE_SNAPSHOTS.json)。这些本地源码快照不随本仓库上传；下表链接指向上游对应的固定版本。每个快照都是 `--depth=1` 的上游默认分支克隆，保留 `.git` 与原许可证；本次全部下载成功，未安装它们的依赖，未修改它们的源码。运行本项目无需另外下载参考仓库。
 
@@ -62,6 +84,6 @@ Reddit 的关键词、作者公开帖、社区列表和登录后的订阅首页�
 
 ## 源码与许可证记录
 
-参考目录保存的是未修改的上游仓库。Market Radar 没有复制、vendor 或直接导入 AGPL/GPL 上游项目源码，也不复制许可证未知的代码；PRAW、Twikit 通过依赖声明安装。其他项目仅为工作流、数据结构与界面行为参考，不将这些思路描述成已部署的服务。
+参考目录保存的是未修改的上游仓库。Market Radar 没有复制、vendor 或直接导入 AGPL/GPL 上游项目源码，也不复制许可证未知的代码；PRAW、Twikit 和上表行情组件通过依赖声明安装。完整参考平台用于工作流、数据结构与界面行为研究，不把这些思路描述成已部署的上游服务。
 
 表中的许可证名称按下载 commit 的根许可证文件识别，原始完整条款保留在对应仓库。这个清单提供事实记录，不作商用、分发或衍生作品的法律结论。根许可证不能替代对子目录或第三方依赖条款的逐项查看；例如 OpenMagpie README 对可选企业目录另有说明。

@@ -21,3 +21,5 @@ secrets.enc
 *.tsbuildinfo
 playwright-report/
 test-results/
+output/playwright/
+.playwright-cli/

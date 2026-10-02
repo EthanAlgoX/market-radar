@@ -1,12 +1,12 @@
 {
   "name": "market-radar",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "dev": "node scripts/run.mjs",
     "start": "node scripts/run.mjs --production",
     "build": "npm --prefix frontend run build",
-    "test": "backend/.venv/bin/python -m pytest backend/tests -q",
+    "test": "backend/.venv/bin/python -m pytest backend/tests -q && npm --prefix frontend test",
     "check": "npm --prefix frontend run check"
   }
 }
