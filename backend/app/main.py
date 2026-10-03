@@ -27,6 +27,7 @@ import httpx
 from .connectors.public import PublicConnector, UnsupportedChannel
 from .connectors.reddit import RedditConnector
 from .connectors.x import XConnector
+from .deployment import DeploymentURL, LOCAL_CALLBACK, LOCAL_CALLBACKS, LOCAL_ORIGINS, route_path, trusted_request_host
 from .security import SecretStore, fetch_url, safe_error
 from .store import ItemVersionConflict, Store, now_iso
 from .translation import TranslationConfig, TranslationManager, normalize_api_base_url
@@ -34,9 +35,7 @@ from .market.service import MarketService
 from .market.router import create_market_router
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED_ORIGINS = {
-    f"http://{host}:{port}" for host in ["localhost", "127.0.0.1", "[::1]"] for port in [5173, 8787]
-}
+ALLOWED_ORIGINS = LOCAL_ORIGINS
 SOURCES = ["news", "rss", "x", "reddit", "hackernews"]
 SOURCE_NAMES = {"news": "Google News", "rss": "财经 RSS", "x": "X", "reddit": "Reddit", "hackernews": "Hacker News"}
 
@@ -113,15 +112,7 @@ class SettingsUpdate(BaseModel):
 class RedditConfig(BaseModel):
     client_id: str = Field(min_length=3, max_length=200)
     client_secret: str | None = Field(default=None, max_length=500)
-    redirect_uri: str = "http://localhost:8787/api/connections/reddit/callback"
-
-    @field_validator("redirect_uri")
-    @classmethod
-    def local_callback(cls, value):
-        parsed = urlsplit(value)
-        if parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1", "::1"} or parsed.port != 8787 or parsed.path != "/api/connections/reddit/callback" or parsed.query or parsed.fragment or parsed.username:
-            raise ValueError("回调必须为本机 8787 端口的 /api/connections/reddit/callback")
-        return value
+    redirect_uri: str | None = Field(default=None, min_length=1, max_length=2000)
 
 
 class CookieRequest(BaseModel):
@@ -165,8 +156,9 @@ class TranslationConfigUpdate(BaseModel):
 
 
 class Service:
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, public_url: DeploymentURL | None = None):
         self.data_dir = data_dir
+        self.public_url = public_url
         self.secrets = SecretStore(data_dir)
         self.store = Store(data_dir / "market-radar.sqlite3")
         self.environment_translation_config = TranslationConfig.from_environment()
@@ -174,7 +166,7 @@ class Service:
         self.translation_source = "local" if saved_translation else "environment" if self.environment_translation_config.api_key else "none"
         self.translation = TranslationManager(self.store, TranslationConfig(**saved_translation) if saved_translation else self.environment_translation_config)
         self.x = XConnector(self.secrets, data_dir, store=self.store)
-        self.reddit = RedditConnector(self.secrets, store=self.store)
+        self.reddit = RedditConnector(self.secrets, store=self.store, redirect_uri=public_url.reddit_callback if public_url else None)
         self.public = PublicConnector(self.store)
         self.market = MarketService(data_dir, news_store=self.store)
         self.tasks: set[asyncio.Task] = set()
@@ -193,9 +185,10 @@ class Service:
         try:
             value = await self.x.status()
             value["status"] = value.get("state", value.get("status", "disconnected"))
+            value["browser_login_available"] = self.public_url is None
             return value
         except Exception:
-            return {"status": "error", "state": "error", "message": "X 连接状态检查失败", "username": ""}
+            return {"status": "error", "state": "error", "message": "X 连接状态检查失败", "username": "", "browser_login_available": self.public_url is None}
 
     def settings(self):
         settings = self.store.settings()
@@ -498,10 +491,14 @@ class Service:
                     self.new_job(CollectRequest(channel="recommended", sources=connected))
 
 
-def create_app(data_dir: Path | None = None):
+def create_app(data_dir: Path | None = None, *, public_url: str | None = None):
+    configured_url = os.environ.get("RADAR_PUBLIC_URL", "") if public_url is None else public_url
+    deployment = DeploymentURL.parse(configured_url) if configured_url else None
+    allowed_origins = ALLOWED_ORIGINS | ({deployment.origin} if deployment else set())
+
     @asynccontextmanager
     async def lifespan(application):
-        service = Service(data_dir or Path(os.environ.get("RADAR_DATA_DIR", ROOT / "data")))
+        service = Service(data_dir or Path(os.environ.get("RADAR_DATA_DIR", ROOT / "data")), public_url=deployment)
         application.state.service = service
         service.start_workers()
         service.market.start_workers()
@@ -517,28 +514,29 @@ def create_app(data_dir: Path | None = None):
             if hasattr(service.x, "shutdown"):
                 await service.x.shutdown()
 
-    application = FastAPI(title="Market Radar", version="0.5.0", lifespan=lifespan)
+    application = FastAPI(title="Market Radar", version="0.5.0", lifespan=lifespan, root_path=deployment.base_path if deployment else "")
     application.include_router(create_market_router(lambda request: request.app.state.service.market))
-    application.add_middleware(CORSMiddleware, allow_origins=sorted(ALLOWED_ORIGINS), allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Content-Type"], allow_credentials=False)
+    application.add_middleware(CORSMiddleware, allow_origins=sorted(allowed_origins), allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Content-Type"], allow_credentials=False)
 
     @application.middleware("http")
     async def local_access(request: Request, call_next):
-        try:
-            host = urlsplit("http://" + request.headers.get("host", "")).hostname
-        except ValueError:
-            return JSONResponse({"detail": "无效的本机 Host"}, status_code=403)
-        trusted_hosts = {"localhost", "127.0.0.1", "::1"}
-        if data_dir is not None:  # Isolated test applications may use Starlette's test client.
-            trusted_hosts.add("testserver")
-        if host not in trusted_hosts:
-            return JSONResponse({"detail": "服务仅接受本机 Host"}, status_code=403)
+        hosts = request.headers.getlist("host")
+        if len(hosts) != 1 or not trusted_request_host(hosts[0], deployment, allow_testserver=data_dir is not None):
+            return JSONResponse({"detail": "服务仅接受本机或显式配置的 Host"}, status_code=403)
         origin = request.headers.get("origin")
-        if origin and origin not in ALLOWED_ORIGINS:
-            return JSONResponse({"detail": "该网页来源未被授权访问本机服务"}, status_code=403)
-        if request.headers.get("sec-fetch-site") == "cross-site" and request.url.path != "/api/connections/reddit/callback":
-            return JSONResponse({"detail": "已阻止外部网站访问本机服务"}, status_code=403)
+        if origin is not None and (len(request.headers.getlist("origin")) != 1 or origin not in allowed_origins):
+            return JSONResponse({"detail": "该网页来源未被授权访问服务"}, status_code=403)
+        path = route_path(request.scope["path"], request.scope.get("root_path", ""))
+        if request.headers.get("sec-fetch-site") == "cross-site" and not (request.method == "GET" and path == "/api/connections/reddit/callback"):
+            return JSONResponse({"detail": "已阻止外部网站访问服务"}, status_code=403)
+        if deployment and deployment.base_path and request.scope["path"] == path:
+            # ASGI path includes the application prefix. A stripping proxy does
+            # not supply it; restore it so nested mounts (StaticFiles) can remove
+            # their complete root_path rather than searching assets/assets/.
+            request.scope["path"] = deployment.base_path + path
+            request.scope["raw_path"] = deployment.base_path.encode("ascii") + request.scope.get("raw_path", path.encode("utf-8"))
         response = await call_next(request)
-        if request.url.path.startswith("/api"):
+        if path == "/api" or path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -734,6 +732,8 @@ def create_app(data_dir: Path | None = None):
 
     @application.post("/api/connections/x/login")
     async def x_login(request: Request):
+        if svc(request).public_url is not None:
+            raise HTTPException(400, "Hosted deployments cannot open a local X login browser. Import your own X session in account settings instead.")
         try:
             value = await svc(request).x.start_login()
             return {**value, "status": value.get("state", "connecting")}
@@ -768,7 +768,12 @@ def create_app(data_dir: Path | None = None):
     @application.post("/api/connections/reddit/config")
     async def reddit_config(payload: RedditConfig, request: Request):
         service = svc(request)
-        service.reddit.config(payload.client_id, payload.client_secret, payload.redirect_uri)
+        expected = deployment.reddit_callback if deployment else LOCAL_CALLBACK
+        redirect_uri = payload.redirect_uri or expected
+        permitted = {expected} if deployment else LOCAL_CALLBACKS
+        if redirect_uri not in permitted:
+            raise HTTPException(422, "Reddit callback must match this deployment's callback URL. Copy it from account settings.")
+        service.reddit.config(payload.client_id, payload.client_secret, redirect_uri)
         return service.reddit.status()
 
     @application.get("/api/connections/reddit/authorize")
@@ -781,13 +786,13 @@ def create_app(data_dir: Path | None = None):
     @application.get("/api/connections/reddit/callback")
     async def reddit_callback(request: Request, state: str = "", code: str = "", error: str = ""):
         service = svc(request)
-        frontend_origin = "http://localhost:8787" if (ROOT.parent / "frontend" / "dist" / "index.html").exists() else "http://localhost:5173"
+        frontend_base = deployment.base_url if deployment else ("http://localhost:8787/" if (ROOT.parent / "frontend" / "dist" / "index.html").exists() else "http://localhost:5173/")
         if error:
             try:
                 service.reddit.consume_state(state)
             except ValueError:
                 raise HTTPException(400, "Reddit 授权状态无效或已过期") from None
-            return RedirectResponse(frontend_origin + "/?connection=reddit&status=cancelled")
+            return RedirectResponse(frontend_base + "?connection=reddit&status=cancelled")
         if not state or not code:
             raise HTTPException(400, "Reddit 授权缺少 code 或 state")
         try:
@@ -795,8 +800,8 @@ def create_app(data_dir: Path | None = None):
         except ValueError:
             raise HTTPException(400, "Reddit 授权状态无效或已过期") from None
         except Exception:
-            return RedirectResponse(frontend_origin + "/?connection=reddit&status=error")
-        return RedirectResponse(frontend_origin + "/?connection=reddit&status=connected")
+            return RedirectResponse(frontend_base + "?connection=reddit&status=error")
+        return RedirectResponse(frontend_base + "?connection=reddit&status=connected")
 
     @application.delete("/api/connections/reddit")
     async def reddit_disconnect(request: Request):

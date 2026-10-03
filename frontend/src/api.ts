@@ -1,7 +1,11 @@
 import type { Discussion, Post, SourcePresets } from "./types";
+import { applicationApiUrl } from "./appUrls.ts";
+
+export const apiUrl = (path: string) =>
+  applicationApiUrl(path, document.baseURI, import.meta.env.BASE_URL);
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(apiUrl(path), {
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   });

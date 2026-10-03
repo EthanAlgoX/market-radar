@@ -12,6 +12,7 @@ import praw
 from prawcore import Requestor
 
 from ..security import SecretStore, safe_error, strip_html
+from ..deployment import LOCAL_CALLBACK
 
 
 def _now():
@@ -69,8 +70,9 @@ class RedditConnector:
     RUN_TIMEOUT = 75.0
     VERIFY_INTERVAL = 60.0
 
-    def __init__(self, secrets_store: SecretStore, store: Any = None):
+    def __init__(self, secrets_store: SecretStore, store: Any = None, redirect_uri: str | None = None):
         self.secrets, self.store = secrets_store, store
+        self.redirect_uri = redirect_uri
         self.lock, self._request_lock = threading.RLock(), threading.Lock()
         self._local = threading.local()
         self._checkpoints = {}
@@ -178,7 +180,7 @@ class RedditConnector:
                 "message": self._message if has_token else "使用 Reddit OAuth 授权本人账号",
                 "last_verified_at": self.last_verified_at, "last_success": self.last_success,
                 "last_error": self.last_error, "truncated": self.truncated,
-                "redirect_uri": self.secrets.get("reddit_redirect_uri", "http://localhost:8787/api/connections/reddit/callback")}
+                "redirect_uri": self.redirect_uri or self.secrets.get("reddit_redirect_uri", LOCAL_CALLBACK)}
 
     def _validate_identity(self, client, budget):
         budget.check()
@@ -225,6 +227,8 @@ class RedditConnector:
 
     def authorize(self):
         with self.lock:
+            if self.redirect_uri and self.secrets.get("reddit_redirect_uri") != self.redirect_uri:
+                raise RedditNotConnected("The saved Reddit callback belongs to a different deployment. Configure your Reddit app using the callback URL shown in account settings.")
             state = secrets.token_urlsafe(32)
             self.secrets.set("reddit_oauth_state", {"state": state, "expires_at": time.time() + 600, "generation": self.generation})
             client = self._client(False)

@@ -23,3 +23,4 @@ playwright-report/
 test-results/
 output/playwright/
 .playwright-cli/
+deploy/runtime.env

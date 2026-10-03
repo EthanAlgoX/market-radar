@@ -47,7 +47,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { api, getArticleContent, getDiscussion, json } from "./api";
+import { api, apiUrl, getArticleContent, getDiscussion, json } from "./api";
 import {
   sameOriginal,
   translatedPost,
@@ -752,7 +752,7 @@ export default function App() {
             <section className="search-section news-heading">
               <div className="page-heading">
                 <div><h1>{channelTitle}</h1><p className="page-description">{channelDescription}</p></div>
-                <button className="quiet-button export-button" onClick={() => window.open("/api/export?format=json", "_blank", "noopener")}>
+                <button className="quiet-button export-button" onClick={() => window.open(apiUrl("/export?format=json"), "_blank", "noopener")}>
                   <ArrowDownToLine size={16} />{t("导出全部", "Export all")}
                 </button>
               </div>

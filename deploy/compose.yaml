@@ -1,0 +1,31 @@
+name: market-radar
+services:
+  app:
+    image: ${RADAR_IMAGE:-market-radar:latest}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    init: true
+    restart: unless-stopped
+    env_file: ${RADAR_ENV_FILE:-./runtime.env}
+    environment:
+      RADAR_DATA_DIR: /data
+      RADAR_PUBLIC_URL: ${RADAR_PUBLIC_URL:-https://myaistock.top/market-radar/}
+    ports:
+      - "127.0.0.1:${RADAR_HOST_PORT:-8788}:8787"
+    volumes:
+      - ${RADAR_DATA_DIR:-/opt/market-radar/data}:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1536m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

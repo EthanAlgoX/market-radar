@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BookOpen, Check, CheckCircle2, ExternalLink, LoaderCircle, Plus, Rss, Trash2, UsersRound } from "lucide-react";
-import { api, getSourcePresets, json } from "./api";
+import { api, apiUrl, getSourcePresets, json } from "./api";
 import { localeCode, localizeMessage, t, useLocale } from "./i18n";
 import TranslationSettings from "./TranslationSettings";
 import { editorFromSettings, mergeSettingsEditor, scopeDirty, settingsPayload, type SettingsEditor, type SaveScope } from "./settingsDraft";
@@ -128,6 +128,7 @@ export default function SettingsPage({
   const [cookies, setCookies] = useState("");
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  const redditRedirectUri = connections.reddit?.redirect_uri || apiUrl("/connections/reddit/callback");
   const [newFeedName, setNewFeedName] = useState("");
   const [newFeedUrl, setNewFeedUrl] = useState("");
   const [busy, setBusy] = useState("");
@@ -206,8 +207,7 @@ export default function SettingsPage({
           json("POST", {
             client_id: clientId.trim(),
             client_secret: clientSecret.trim(),
-            redirect_uri:
-              "http://localhost:8787/api/connections/reddit/callback",
+            redirect_uri: redditRedirectUri,
           }),
         );
       const result = await api<{ url: string }>(
@@ -251,6 +251,7 @@ export default function SettingsPage({
     tell(t(`已加入 ${additions.length} 个待保存来源，请点击“保存来源”。`, `${additions.length} feeds added to the draft. Click Save feeds.`));
   }
   const xState = connections.x?.state || "disconnected";
+  const xBrowserLoginAvailable = connections.x?.browser_login_available !== false;
   const redditState = connections.reddit?.state || "disconnected";
   const configuredLlm =
     typeof settings?.llm.api_key === "object" &&
@@ -300,7 +301,9 @@ export default function SettingsPage({
               />
             </div>
             <div className="connection-body">
-              <p>{localizeMessage("在独立浏览器窗口中登录自己的账号，本站不接收你的 X 密码。")}</p>
+              <p>{xBrowserLoginAvailable
+                ? localizeMessage("在独立浏览器窗口中登录自己的账号，本站不接收你的 X 密码。")
+                : t("服务器版本通过导入已有 X 会话连接账号。请先在自己的浏览器中登录，再导出 X 的 Cookie JSON。", "Connect your X account by importing an existing session. Sign in to X in your own browser, then export its cookie JSON.")}</p>
               {connections.x?.message && (
                 <div
                   className={`connection-message ${xState === "error" ? "error" : ""}`}
@@ -309,7 +312,7 @@ export default function SettingsPage({
                 </div>
               )}
               <div className="connection-actions">
-                <button
+                {xBrowserLoginAvailable && <button
                   className="primary-button"
                   disabled={!!busy || xState === "connecting"}
                   onClick={() =>
@@ -335,7 +338,7 @@ export default function SettingsPage({
                     : xState === "connected"
                       ? localizeMessage("重新登录 X")
                       : localizeMessage("在浏览器登录 X")}
-                </button>
+                </button>}
                 {xState === "connected" && (
                   <button
                     className="secondary-button"
@@ -366,9 +369,11 @@ export default function SettingsPage({
                   >{localizeMessage("断开连接")}</button>
                 )}
               </div>
-              <details className="advanced-settings">
+              <details className="advanced-settings" open={xBrowserLoginAvailable ? undefined : true}>
                 <summary>{localizeMessage("使用已有登录会话")}</summary>
-                <p className="text-note">{localizeMessage("如果浏览器登录不可用，可以导入你自己导出的 Cookie JSON。会话只保存到本机。")}</p>
+                <p className="text-note">{xBrowserLoginAvailable
+                  ? localizeMessage("如果浏览器登录不可用，可以导入你自己导出的 Cookie JSON。会话只保存到本机。")
+                  : t("仅导出并粘贴 x.com 的 Cookie，需要包含 auth_token 与 ct0。会话加密保存在本站服务器，由服务器验证并采集你的账号内容。", "Export and paste only your x.com cookies, including auth_token and ct0. Your session is stored encrypted on this server, which verifies it and collects your account feeds.")}</p>
                 <label className="field">
                   <span>Cookie JSON</span>
                   <textarea
@@ -381,7 +386,7 @@ export default function SettingsPage({
                   />
                 </label>
                 <button
-                  className="secondary-button"
+                  className={xBrowserLoginAvailable ? "secondary-button" : "primary-button"}
                   disabled={!!busy || !cookies.trim()}
                   onClick={() =>
                     void perform("x-cookie", async () => {
@@ -449,15 +454,13 @@ export default function SettingsPage({
                 </label>
               </div>
               <div className="callback-note">{localizeMessage("应用回调地址：")}<code>
-                  http://localhost:8787/api/connections/reddit/callback
+                  {redditRedirectUri}
                 </code>
                 <button
                   className="text-button"
                   onClick={() => {
                     void navigator.clipboard
-                      .writeText(
-                        "http://localhost:8787/api/connections/reddit/callback",
-                      )
+                      .writeText(redditRedirectUri)
                       .then(() => tell(localizeMessage("回调地址已复制。")))
                       .catch(() => setError(t("无法复制回调地址，请手动选择上方地址。", "Could not copy the callback URL. Select the address above to copy it manually.")));
                   }}

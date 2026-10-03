@@ -6,6 +6,7 @@ const DIAGNOSTICS: [string, string][] = [
   ["RSSHub 地址必须是无登录凭据的 HTTP / HTTPS URL", "RSSHub URL must be an HTTP / HTTPS URL without login credentials"],
   ["回调必须为本机 8787 端口的 /api/connections/reddit/callback", "The redirect must use localhost port 8787 and /api/connections/reddit/callback"],
   ["X 连接状态检查失败", "X connection status could not be checked"],
+  ["服务器版本无法打开本机 X 登录窗口，请在账号设置中导入你自己的 X 会话。", "Hosted deployments cannot open a local X login browser. Import your own X session in account settings instead."],
   ["已配置公开来源；尚未采集", "Public sources are configured; no collection has run yet"],
   ["使用已配置 RSSHub；本人 X 会话未连接", "Using the configured RSSHub instance; your X account is not connected"],
   ["Reddit 连接验证失败", "Reddit connection verification failed"],

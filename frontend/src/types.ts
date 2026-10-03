@@ -82,6 +82,8 @@ export interface Connection {
   message?: string;
   configured?: boolean;
   client_id_configured?: boolean;
+  redirect_uri?: string;
+  browser_login_available?: boolean;
 }
 export interface Settings {
   keywords: string[];

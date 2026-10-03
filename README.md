@@ -23,6 +23,8 @@ Open **[http://localhost:8787](http://localhost:8787)**. After the first setup, 
 
 The service binds to `127.0.0.1`. Use `localhost` or `127.0.0.1` so that account callbacks and browser-origin checks work correctly.
 
+For a private HTTPS server installation, see the [deployment guide](deploy/README.md). It supports `/market-radar/`, authenticated Nginx access, Docker Compose and persistent storage. Hosted Reddit uses the callback displayed in Settings; graphical X login is available locally, while servers use session import.
+
 ## Start researching
 
 1. **Collect news.** Open **News library**, enter a keyword in the collection box and select **Collect news**. Queries support phrases, parentheses, `OR`, `AND` and `NOT`, with English/Chinese financial aliases. After collection, the local list filters by that query; clear the visible filter to browse the whole library.
