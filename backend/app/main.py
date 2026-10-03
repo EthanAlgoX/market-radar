@@ -527,7 +527,15 @@ def create_app(data_dir: Path | None = None, *, public_url: str | None = None):
         if origin is not None and (len(request.headers.getlist("origin")) != 1 or origin not in allowed_origins):
             return JSONResponse({"detail": "该网页来源未被授权访问服务"}, status_code=403)
         path = route_path(request.scope["path"], request.scope.get("root_path", ""))
-        if request.headers.get("sec-fetch-site") == "cross-site" and not (request.method == "GET" and path == "/api/connections/reddit/callback"):
+        public_entry_navigation = (
+            deployment is not None
+            and request.method == "GET"
+            and path in {"/", "/index.html"}
+            and request.headers.getlist("sec-fetch-mode") == ["navigate"]
+            and request.headers.getlist("sec-fetch-dest") == ["document"]
+        )
+        oauth_callback = request.method == "GET" and path == "/api/connections/reddit/callback"
+        if request.headers.get("sec-fetch-site") == "cross-site" and not (oauth_callback or public_entry_navigation):
             return JSONResponse({"detail": "已阻止外部网站访问服务"}, status_code=403)
         if deployment and deployment.base_path and request.scope["path"] == path:
             # ASGI path includes the application prefix. A stripping proxy does

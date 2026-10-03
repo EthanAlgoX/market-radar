@@ -224,3 +224,65 @@ def test_production_frontend_bundle_is_served_in_both_proxy_modes(tmp_path, pref
             assert response.status_code == 200
             assert response.content == asset.read_bytes()
             assert response.headers["content-type"].split(";")[0] == ("text/javascript" if asset.suffix == ".js" else "text/css")
+
+
+ENTRY_HEADERS = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
+
+
+@pytest.mark.parametrize("prefixed", [False, True])
+@pytest.mark.parametrize("entry", ["/", "/index.html"])
+def test_hosted_homepage_accepts_top_level_navigation_from_external_links(tmp_path, monkeypatch, prefixed, entry):
+    import app.main as main
+    frontend = tmp_path / "frontend" / "dist"
+    frontend.mkdir(parents=True)
+    html = "<!doctype html><title>Market Radar</title><main>News workspace</main>"
+    (frontend / "index.html").write_text(html)
+    monkeypatch.setattr(main, "ROOT", tmp_path / "backend")
+    prefix = "/market-radar" if prefixed else ""
+    with TestClient(main.create_app(tmp_path / "data", public_url=PUBLIC_URL), base_url="https://myaistock.top") as client:
+        response = client.get(prefix + entry, headers=ENTRY_HEADERS)
+        assert response.status_code == 200 and response.text == html
+        assert response.headers["content-type"].split(";")[0] == "text/html"
+        assert response.headers["Referrer-Policy"] == "no-referrer"
+
+
+@pytest.mark.parametrize("prefixed", [False, True])
+@pytest.mark.parametrize("method,path,changes", [
+    ("GET", "/api/settings", {}), ("GET", "/api/health", {}),
+    ("POST", "/api/collect", {}), ("PUT", "/api/settings", {}),
+    ("POST", "/", {}), ("HEAD", "/index.html", {}),
+    ("GET", "/docs", {}), ("GET", "/assets/entry.js", {}),
+    ("GET", "/", {"Sec-Fetch-Mode": "cors"}),
+    ("GET", "/", {"Sec-Fetch-Mode": "no-cors"}),
+    ("GET", "/index.html", {"Sec-Fetch-Dest": "iframe"}),
+    ("GET", "/index.html", {"Sec-Fetch-Dest": "empty"}),
+])
+def test_public_navigation_exception_does_not_allow_cross_site_api_mutations_fetches_or_embeds(tmp_path, prefixed, method, path, changes):
+    prefix = "/market-radar" if prefixed else ""
+    with TestClient(create_app(tmp_path, public_url=PUBLIC_URL), base_url="https://myaistock.top") as client:
+        assert client.request(method, prefix + path, headers={**ENTRY_HEADERS, **changes}).status_code == 403
+
+
+@pytest.mark.parametrize("headers", [
+    {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate"},
+    {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Dest": "document"},
+    {**ENTRY_HEADERS, "Host": "evil.example", "X-Forwarded-Host": "myaistock.top"},
+    {**ENTRY_HEADERS, "Origin": "https://github.com"},
+])
+def test_homepage_navigation_keeps_host_origin_and_fetch_metadata_validation(tmp_path, headers):
+    with TestClient(create_app(tmp_path, public_url=PUBLIC_URL), base_url="https://myaistock.top") as client:
+        assert client.get("/", headers=headers).status_code == 403
+
+
+def test_homepage_navigation_rejects_duplicate_fetch_metadata(tmp_path):
+    with TestClient(create_app(tmp_path, public_url=PUBLIC_URL), base_url="https://myaistock.top") as client:
+        duplicated_mode = list(ENTRY_HEADERS.items()) + [("Sec-Fetch-Mode", "cors")]
+        duplicated_dest = list(ENTRY_HEADERS.items()) + [("Sec-Fetch-Dest", "iframe")]
+        assert client.get("/", headers=duplicated_mode).status_code == 403
+        assert client.get("/", headers=duplicated_dest).status_code == 403
+
+
+@pytest.mark.parametrize("entry", ["/", "/index.html"])
+def test_local_default_keeps_cross_site_navigation_blocked(tmp_path, entry):
+    with TestClient(create_app(tmp_path, public_url=""), base_url="http://localhost:8787") as client:
+        assert client.get(entry, headers=ENTRY_HEADERS).status_code == 403
